@@ -6,46 +6,8 @@
 #   "application/octet-stream" with each chunk without signing it, and Ceph
 #   20 refuses unsigned Content-Type on signed-URL uploads (403).
 # - No size limit and no buffering, so large chunked uploads stream through.
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: s3-gateway
-data:
-  default.conf: |
-    map "$args|$http_authorization" $ct_signed {
-      "~*content-type" 1;
-      default 0;
-    }
-    map $ct_signed $upstream_ct {
-      1 $http_content_type;
-      default "";
-    }
-    server {
-      listen 8080;
-      client_max_body_size 0;
-      proxy_request_buffering off;
-      proxy_buffering off;
-      proxy_http_version 1.1;
-      proxy_read_timeout 300s;
-      proxy_send_timeout 300s;
-
-      location = /healthz { access_log off; return 200 "ok\n"; }
-
-      location ~ ^/cloudreve(/|$) {
-        proxy_set_header Host $host;
-        proxy_set_header Content-Type $upstream_ct;
-        proxy_set_header Connection "";
-        proxy_pass https://s3.lan.buunk.org;
-        proxy_ssl_server_name on;
-        proxy_ssl_name s3.lan.buunk.org;
-        proxy_ssl_verify on;
-        proxy_ssl_verify_depth 3; # leaf, intermediate, root (Let's Encrypt)
-        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
-      }
-
-      location / { return 404; }
-    }
----
+# The nginx config is s3-gateway.conf (a config map generated from it, so a
+# change rolls the pods).
 apiVersion: apps/v1
 kind: Deployment
 metadata:

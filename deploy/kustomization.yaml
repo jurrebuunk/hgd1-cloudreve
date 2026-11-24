@@ -13,3 +13,6 @@ resources:
   - cloudreve.yaml
 components:
   - ../components/postgres
+configMapGenerator:
+  - name: s3-gateway
+    files: [default.conf=s3-gateway.conf]
