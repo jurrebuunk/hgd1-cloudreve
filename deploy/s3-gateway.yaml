@@ -1,0 +1,98 @@
+# The way browsers reach Cloudreve's bucket: https://files-s3.buunk.org
+# (tunnel route in hgd1-k8s) → this proxy → https://s3.lan.buunk.org.
+# - Only the bucket cloudreve passes; anything else is 404.
+# - The Host stays files-s3.buunk.org, which the signed links include.
+# - Content-Type is dropped unless it is signed: Cloudreve's uploader sends
+#   "application/octet-stream" with each chunk without signing it, and Ceph
+#   20 refuses unsigned Content-Type on signed-URL uploads (403).
+# - No size limit and no buffering, so large chunked uploads stream through.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: s3-gateway
+data:
+  default.conf: |
+    map "$args|$http_authorization" $ct_signed {
+      "~*content-type" 1;
+      default 0;
+    }
+    map $ct_signed $upstream_ct {
+      1 $http_content_type;
+      default "";
+    }
+    server {
+      listen 8080;
+      client_max_body_size 0;
+      proxy_request_buffering off;
+      proxy_buffering off;
+      proxy_http_version 1.1;
+      proxy_read_timeout 300s;
+      proxy_send_timeout 300s;
+
+      location = /healthz { access_log off; return 200 "ok\n"; }
+
+      location ~ ^/cloudreve(/|$) {
+        proxy_set_header Host $host;
+        proxy_set_header Content-Type $upstream_ct;
+        proxy_set_header Connection "";
+        proxy_pass https://s3.lan.buunk.org;
+        proxy_ssl_server_name on;
+        proxy_ssl_name s3.lan.buunk.org;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+      }
+
+      location / { return 404; }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: s3-gateway }
+  template:
+    metadata:
+      labels: { app: s3-gateway }
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: s3-gateway }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.30.6-alpine
+          ports: [{ containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: config, mountPath: /etc/nginx/conf.d, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: config
+          configMap: { name: s3-gateway }
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3-gateway
+spec:
+  selector: { app: s3-gateway }
+  ports: [{ port: 80, targetPort: 8080 }]

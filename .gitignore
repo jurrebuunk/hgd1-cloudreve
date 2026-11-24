@@ -1,0 +1,2 @@
+# Flux adds hgd1-k8s's components/ here when it fetches this repo.
+/components/

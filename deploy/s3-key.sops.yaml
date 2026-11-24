@@ -1,0 +1,36 @@
+# Cloudreve's S3 key (user cloudreve, bucket cloudreve). Cloudreve keeps
+# storage settings in its database, so this is entered once in its admin
+# panel (Storage policies → S3 compatible); kept here as the record.
+apiVersion: v1
+kind: Secret
+metadata:
+    name: cloudreve-s3
+stringData:
+    access-key: ENC[AES256_GCM,data:E3xsEXffefG/CxkeO9I/4iKGuZo=,iv:n1+dexfXrolVLPWZeqeRBYPZci5XFVfcNIwc8H8oliM=,tag:iQQi2QpH33mDJOdpDWhU7w==,type:str]
+    secret-key: ENC[AES256_GCM,data:4Bu8++OElMWQgD0uztJ32PPA/HFOTsRh1tmPwvqSBBfocsm5WqF1Iw==,iv:opL+A5Cls3hvs3kKoGzBsd6XlzEVTRTl7HjESaZ7Was=,tag:XEIXPMhc5eUt9Z953VWUEQ==,type:str]
+    endpoint: ENC[AES256_GCM,data:JorPUfvkFQLu9Z6Eg0STPE5Jyn+ZDasQzYs=,iv:6C/nntJgwRxDFi3141uYl0v07+6Nj+StgfJVPakXK+M=,tag:rRe8mjQd3Db9bQEienDUnw==,type:str]
+    bucket: ENC[AES256_GCM,data:OqGJoxsCxn99,iv:Gg8sN7nUGP6wceIiq8X5hOoLb1eGr0sJufatiX33t28=,tag:HNWneQi8eSuPujDLYSmlHw==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSB6WGgvVFVYSVpSRWU2V0JE
+            SHpsN3liL1hRNHN2ZmJEeCtyYW5rTUtYTVg0Ck5jTjZ3TzNZV2crVExKMHVIeHh3
+            NW8zVXZuTFNQczNQbTJURlFUWjRkWncKLS0tIHFMS01Ha2NjdWVwWDNzc0crUSt0
+            cVk5RUx4TTZBL0NCaEREc0FsemRNRjQKLjHWitXcVHtVgzNy3Wmp5c2K4n0Ux2DB
+            L/Qshd2669wH18QBC7e5yKe+3w30pHmM7wcb3+TtjGxbwok0vsgv1w==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1fharluqqx8n8clz5an6qte8hgqrkawjz6sy23humd2awzr0vq5tsvv6xgf
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSAydDRZTGRRNW9HQVRZZ0NS
+            ajVPclp1dmFLdEdkcUY2OUpsOFdpZ0QybEZZCll3Wngxc0pTYzNXNndNYkpadVBY
+            UVJ6VCtUeDNXMHNHTWw3ZGIxTCtNNTQKLS0tIC9Xc1VINHlvYzJEK2JsR0xNby9n
+            S3ljSHpUTnc3b0RrNEo0UUs5TEtUelUKU+fub0HD7FfyWRC6r0gGNTXKk8hskuTZ
+            /S0HHlxEdmLxJdhkdAi2Ym4zq7o43GvbReFmZB1q6GVbRs4kxm+Lgg==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age14lsxk30xq82ywvkf4l8psk55a0tkls87qx3k6u0zllyjt9tpwawsdgycxx
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-11-24T18:00:08Z"
+    mac: ENC[AES256_GCM,data:d42PUsTj0F90HjscD1SMpDyzFClRn67aFmIT9q+Zrn+UDr0XzM44DxfIBj50jH0aftCIReTvSZt3Csqv0xeWpJ+lJwdMXdZriy8ewSzGLzW9pADRdZvJ5kZY6no8MqZZ5CpT4YMixiYl0ymcg4mVbZ9mHEYwpLKvdJvS6CPDDQ8=,iv:hL1d2NJORoh2bQ4a9cv1DUEbYPGHRI3QdVtwG3fb7N0=,tag:DkJoU8WnfXZwQYyBXOAmOA==,type:str]
+    version: 3.13.3

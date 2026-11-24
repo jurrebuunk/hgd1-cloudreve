@@ -1,0 +1,14 @@
+# Cloudreve on the hgd1 cluster. Flux fetches this repo with hgd1-k8s's
+# components/ added (GitRepository include in hgd1-k8s/apps/cloudreve.yaml),
+# so ../components/postgres gives the database its defaults and backups.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: cloudreve
+resources:
+  - namespace.yaml
+  - database.yaml
+  - s3-key.sops.yaml
+  - s3-gateway.yaml
+  - cloudreve.yaml
+components:
+  - ../components/postgres

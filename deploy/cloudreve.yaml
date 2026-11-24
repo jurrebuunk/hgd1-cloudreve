@@ -1,0 +1,50 @@
+# Cloudreve (https://files.buunk.org). Settings, users and storage policies
+# live in its database; files live in the S3 bucket cloudreve. One pod: the
+# docs describe no multi-instance setup.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudreve
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: cloudreve }
+  template:
+    metadata:
+      labels: { app: cloudreve }
+    spec:
+      containers:
+        - name: cloudreve
+          image: cloudreve/cloudreve:4.19.1
+          ports: [{ containerPort: 5212 }]
+          env:
+            - { name: CR_CONF_Database.Type, value: postgres }
+            - { name: CR_CONF_Database.Host, value: cloudreve-db-rw }
+            - { name: CR_CONF_Database.Port, value: "5432" }
+            - { name: CR_CONF_Database.Name, value: cloudreve }
+            - name: CR_CONF_Database.User
+              valueFrom: { secretKeyRef: { name: cloudreve-db-app, key: username } }
+            - name: CR_CONF_Database.Password
+              valueFrom: { secretKeyRef: { name: cloudreve-db-app, key: password } }
+          readinessProbe:
+            tcpSocket: { port: 5212 }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - { name: data, mountPath: /cloudreve/data }
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudreve
+spec:
+  selector: { app: cloudreve }
+  ports: [{ port: 80, targetPort: 5212 }]
