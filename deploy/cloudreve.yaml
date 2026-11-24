@@ -1,6 +1,7 @@
 # Cloudreve (https://cloudreve.buunk.org). Settings, users and storage policies
 # live in its database; files live in the S3 bucket cloudreve. One pod: the
-# docs describe no multi-instance setup.
+# docs describe no multi-instance setup. The image is upstream's with our
+# patches (image/): login through Keycloak, set by the OIDC_* variables.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -56,8 +57,18 @@ spec:
             - { name: data, mountPath: /cloudreve/data }
       containers:
         - name: cloudreve
-          image: cloudreve/cloudreve:4.19.1
+          image: ghcr.io/jurrebuunk/hgd1-cloudreve:4.19.1-oidc.1@sha256:e83332bb76dda6601cf68dac819ad782180bebb224f355a63193bde07ed24668
           ports: [{ containerPort: 5212 }]
+          # Keycloak login (service/oidclogin in the patch). Not CR_*:
+          # Cloudreve logs those values.
+          env:
+            - { name: OIDC_ISSUER, value: https://auth.buunk.org/realms/hgd1 }
+            - { name: OIDC_CLIENT_ID, value: cloudreve }
+            - { name: OIDC_CLIENT_SECRET_FILE, value: /run/secrets/oidc/client-secret }
+            - { name: OIDC_REDIRECT_URL, value: https://cloudreve.buunk.org/api/v4/session/oidc/callback }
+            - { name: OIDC_DISPLAY_NAME, value: buunk }
+            # Keycloak client roles (hgd1-k8s realm) → Cloudreve groups 1 Admin, 2 User.
+            - { name: OIDC_ROLE_GROUPS, value: "admin=1,user=2" }
           readinessProbe:
             tcpSocket: { port: 5212 }
             periodSeconds: 10
@@ -68,9 +79,12 @@ spec:
             allowPrivilegeEscalation: false
           volumeMounts:
             - { name: data, mountPath: /cloudreve/data }
+            - { name: oidc, mountPath: /run/secrets/oidc, readOnly: true }
       volumes:
         - name: data
           emptyDir: {}
+        - name: oidc
+          secret: { secretName: cloudreve-oidc, defaultMode: 0400 }
 ---
 apiVersion: v1
 kind: Service

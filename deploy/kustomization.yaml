@@ -9,6 +9,7 @@ resources:
   - database.yaml
   - s3-key.sops.yaml
   - system.sops.yaml
+  - oidc.sops.yaml
   - s3-gateway.yaml
   - cloudreve.yaml
 components:
