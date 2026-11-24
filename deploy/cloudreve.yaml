@@ -1,4 +1,4 @@
-# Cloudreve (https://files.buunk.org). Settings, users and storage policies
+# Cloudreve (https://cloudreve.buunk.org). Settings, users and storage policies
 # live in its database; files live in the S3 bucket cloudreve. One pod: the
 # docs describe no multi-instance setup.
 apiVersion: apps/v1

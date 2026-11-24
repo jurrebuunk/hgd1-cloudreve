@@ -1,6 +1,6 @@
 # hgd1-cloudreve
 
-[Cloudreve](https://github.com/cloudreve/cloudreve) at **https://files.buunk.org**
+[Cloudreve](https://github.com/cloudreve/cloudreve) at **https://cloudreve.buunk.org**
 on the hgd1 k3s cluster. Flux deploys `deploy/` from this repo; the platform
 ([hgd1-k8s](https://github.com/jurrebuunk/hgd1-k8s)) points Flux here
 (`apps/cloudreve.yaml`) and owns the public routes (`infrastructure/cloudflared/config.yaml`).
