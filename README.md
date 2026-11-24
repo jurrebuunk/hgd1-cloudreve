@@ -29,7 +29,9 @@ only the patch files in this repo.
 
 - **Who gets in:** the client roles of `cloudreve` in Keycloak, set per
   group in hgd1-k8s (`platform/keycloak-realm/hgd1.yaml`): `admins` →
-  `admin` → Cloudreve group Admin; `family`, `friends` → `user` → User.
+  `cloudreve-admin` → Cloudreve group Admin; `family`, `friends` →
+  `cloudreve-user` → User. `cloudreve-admin` makes someone an admin in
+  Cloudreve only, not in Keycloak.
   No role, no access. The group is set again at every sign-in, so moving
   someone between Keycloak groups changes their rights next time they sign in.
 - **Accounts:** the first sign-in creates the Cloudreve account and links it
