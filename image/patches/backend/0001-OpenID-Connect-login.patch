@@ -1,0 +1,1378 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jurrebuunk <jurrebuunk@gmail.com>
+Date: Tue, 24 Nov 2026 22:42:53 +0100
+Subject: [PATCH] OpenID Connect login
+
+Sign in with an external OIDC provider (Keycloak): authorization code
+flow with PKCE, state and nonce, for a confidential client. Configured
+from OIDC_* environment variables; off when OIDC_ISSUER is unset.
+See service/oidclogin.
+---
+ go.mod                              |   3 +
+ go.sum                              |   6 +
+ inventory/types/types.go            |   2 +
+ routers/controllers/oidc_login.go   | 138 ++++++++
+ routers/router.go                   |  12 +
+ service/oidclogin/oidclogin.go      | 474 ++++++++++++++++++++++++++++
+ service/oidclogin/oidclogin_test.go | 316 +++++++++++++++++++
+ service/oidclogin/user.go           | 166 ++++++++++
+ service/oidclogin/user_test.go      | 133 ++++++++
+ 9 files changed, 1250 insertions(+)
+ create mode 100644 routers/controllers/oidc_login.go
+ create mode 100644 service/oidclogin/oidclogin.go
+ create mode 100644 service/oidclogin/oidclogin_test.go
+ create mode 100644 service/oidclogin/user.go
+ create mode 100644 service/oidclogin/user_test.go
+
+diff --git a/go.mod b/go.mod
+index c1af5f6..e3d3762 100644
+--- a/go.mod
++++ b/go.mod
+@@ -11,6 +11,7 @@ require (
+ 	github.com/aws/aws-sdk-go v1.34.0
+ 	github.com/bodgit/sevenzip v1.6.0
+ 	github.com/cloudflare/cfssl v1.6.1
++	github.com/coreos/go-oidc/v3 v3.21.0
+ 	github.com/dhowden/tag v0.0.0-20230630033851-978a0926ee25
+ 	github.com/dsoprea/go-exif/v3 v3.0.1
+ 	github.com/dsoprea/go-heic-exif-extractor v0.0.0-20210512044107-62067e44c235
+@@ -60,6 +61,7 @@ require (
+ 	github.com/wneessen/go-mail v0.7.2
+ 	golang.org/x/exp v0.0.0-20240904232852-e7e105dedf7e
+ 	golang.org/x/image v0.41.0
++	golang.org/x/oauth2 v0.38.0
+ 	golang.org/x/text v0.37.0
+ 	golang.org/x/time v0.12.0
+ 	golang.org/x/tools v0.44.0
+@@ -94,6 +96,7 @@ require (
+ 	github.com/gabriel-vasile/mimetype v1.4.10 // indirect
+ 	github.com/gin-contrib/sse v1.1.0 // indirect
+ 	github.com/go-errors/errors v1.4.2 // indirect
++	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+ 	github.com/go-openapi/inflect v0.19.0 // indirect
+ 	github.com/go-playground/locales v0.14.1 // indirect
+ 	github.com/go-playground/universal-translator v0.18.1 // indirect
+diff --git a/go.sum b/go.sum
+index bd2bf36..3d53fa4 100644
+--- a/go.sum
++++ b/go.sum
+@@ -190,6 +190,8 @@ github.com/coreos/bbolt v1.3.2/go.mod h1:iRUV2dpdMOn7Bo10OQBFzIJO9kkE559Wcmn+qkE
+ github.com/coreos/etcd v3.3.10+incompatible/go.mod h1:uF7uidLiAD3TWHmW31ZFd/JWoc32PjwdhPthX9715RE=
+ github.com/coreos/etcd v3.3.13+incompatible/go.mod h1:uF7uidLiAD3TWHmW31ZFd/JWoc32PjwdhPthX9715RE=
+ github.com/coreos/go-etcd v2.0.0+incompatible/go.mod h1:Jez6KQU2B/sWsbdaef3ED8NzMklzPG4d5KIOhIy30Tk=
++github.com/coreos/go-oidc/v3 v3.21.0 h1:wZo4Q9Pum8dYEj0eMUPrqR+kvuGkeUplbLpNCkBqoWM=
++github.com/coreos/go-oidc/v3 v3.21.0/go.mod h1:DYCf24+ncYi+XkIH97GY1+dqoRlbaSI26KVTCI9SrY4=
+ github.com/coreos/go-semver v0.2.0/go.mod h1:nnelYz7RCh+5ahJtPPxZlU+153eP4D4r3EedlOD2RNk=
+ github.com/coreos/go-semver v0.3.0/go.mod h1:nnelYz7RCh+5ahJtPPxZlU+153eP4D4r3EedlOD2RNk=
+ github.com/coreos/go-systemd v0.0.0-20180511133405-39ca1b05acc7/go.mod h1:F5haX7vjVVG0kc13fIWeqUViNPyEJxv/OmvnBo0Yme4=
+@@ -325,6 +327,8 @@ github.com/go-gl/glfw/v3.3/glfw v0.0.0-20200222043503-6f7a984d4dc4/go.mod h1:tQ2
+ github.com/go-ini/ini v1.25.4/go.mod h1:ByCAeIL28uOIIG0E3PJtZPDL8WnHpFKFOtgjp+3Ies8=
+ github.com/go-ini/ini v1.50.0 h1:ogX6RS8VstVN8MJcwhEP78hHhWaI3klN02+97bByabY=
+ github.com/go-ini/ini v1.50.0/go.mod h1:ByCAeIL28uOIIG0E3PJtZPDL8WnHpFKFOtgjp+3Ies8=
++github.com/go-jose/go-jose/v4 v4.1.4 h1:moDMcTHmvE6Groj34emNPLs/qtYXRVcd6S7NHbHz3kA=
++github.com/go-jose/go-jose/v4 v4.1.4/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
+ github.com/go-kit/kit v0.8.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2as=
+ github.com/go-kit/kit v0.9.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2as=
+ github.com/go-kit/kit v0.10.0/go.mod h1:xUsJbQ/Fp4kEt7AFgCuvyX4a71u8h9jB8tj/ORgOZ7o=
+@@ -1187,6 +1191,8 @@ golang.org/x/oauth2 v0.0.0-20210220000619-9bb904979d93/go.mod h1:KelEdhl1UZF7XfJ
+ golang.org/x/oauth2 v0.0.0-20210313182246-cd4f82c27b84/go.mod h1:KelEdhl1UZF7XfJ4dDtk6s++YSgaE7mD/BuKKDLBl4A=
+ golang.org/x/oauth2 v0.0.0-20210413134643-5e61552d6c78/go.mod h1:KelEdhl1UZF7XfJ4dDtk6s++YSgaE7mD/BuKKDLBl4A=
+ golang.org/x/oauth2 v0.0.0-20210427180440-81ed05c6b58c/go.mod h1:KelEdhl1UZF7XfJ4dDtk6s++YSgaE7mD/BuKKDLBl4A=
++golang.org/x/oauth2 v0.38.0 h1:uW7XQbcu1eoiQS7uMJvLOjPMl04bTbmY1VeRPxvbspI=
++golang.org/x/oauth2 v0.38.0/go.mod h1:IxwZNxUULJmpBFf9K/9NTMSIfZZuvuTy1gGxhigP/58=
+ golang.org/x/sync v0.0.0-20180314180146-1d60e4601c6f/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+ golang.org/x/sync v0.0.0-20181108010431-42b317875d0f/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+ golang.org/x/sync v0.0.0-20181221193216-37e7f081c4d4/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+diff --git a/inventory/types/types.go b/inventory/types/types.go
+index 8af1614..caf3abd 100644
+--- a/inventory/types/types.go
++++ b/inventory/types/types.go
+@@ -17,6 +17,8 @@ type (
+ 		DisableViewSync     bool                     `json:"disable_view_sync,omitempty"`
+ 		FsViewMap           map[string]ExplorerView  `json:"fs_view_map,omitempty"`
+ 		ShareLinksInProfile ShareLinksInProfileLevel `json:"share_links_in_profile,omitempty"`
++		// OIDCSubject links the user to an OpenID Connect identity (service/oidclogin).
++		OIDCSubject string `json:"oidc_sub,omitempty"`
+ 	}
+ 
+ 	ShareLinksInProfileLevel string
+diff --git a/routers/controllers/oidc_login.go b/routers/controllers/oidc_login.go
+new file mode 100644
+index 0000000..90b740b
+--- /dev/null
++++ b/routers/controllers/oidc_login.go
+@@ -0,0 +1,138 @@
++package controllers
++
++import (
++	"errors"
++	"net/http"
++	"net/url"
++
++	"github.com/cloudreve/Cloudreve/v4/application/dependency"
++	"github.com/cloudreve/Cloudreve/v4/inventory"
++	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
++	"github.com/cloudreve/Cloudreve/v4/pkg/util"
++	"github.com/cloudreve/Cloudreve/v4/service/oidclogin"
++	"github.com/gin-gonic/gin"
++)
++
++const (
++	oidcDonePrefix = "oidc_done_"
++	// oidcFrontendPath is the frontend page that finishes the login.
++	oidcFrontendPath = "/session/oidc"
++)
++
++// OIDCLoginInfo tells the login page whether to show the OIDC button.
++func OIDCLoginInfo(c *gin.Context) {
++	cfg, ok := oidclogin.Enabled()
++	if !ok {
++		c.JSON(200, serializer.Response{Data: gin.H{"enabled": false}})
++		return
++	}
++	c.JSON(200, serializer.Response{Data: gin.H{"enabled": true, "display_name": cfg.DisplayName}})
++}
++
++// OIDCLoginStart redirects to the provider.
++func OIDCLoginStart(c *gin.Context) {
++	dep := dependency.FromContext(c)
++	p, err := oidclogin.Get()
++	if err != nil {
++		if !errors.Is(err, oidclogin.ErrDisabled) {
++			dep.Logger().Error("OIDC login unavailable: %s", err)
++		}
++		oidcFail(c, "unavailable", "")
++		return
++	}
++
++	target, err := p.Start(c.Writer, c.Query("redirect"))
++	if err != nil {
++		dep.Logger().Error("Failed to start OIDC login: %s", err)
++		oidcFail(c, "failed", "")
++		return
++	}
++	c.Header("Cache-Control", "no-store")
++	c.Redirect(http.StatusFound, target)
++}
++
++// OIDCLoginCallback finishes the provider's side of the login and leaves a
++// single-use handle for OIDCLoginToken.
++func OIDCLoginCallback(c *gin.Context) {
++	dep := dependency.FromContext(c)
++	c.Header("Cache-Control", "no-store")
++	p, err := oidclogin.Get()
++	if err != nil {
++		oidcFail(c, "unavailable", "")
++		return
++	}
++
++	id, redirect, err := p.Finish(c, c.Writer, c.Request)
++	if err != nil {
++		dep.Logger().Warning("OIDC login rejected: %s", err)
++		code := "failed"
++		if c.Query("error") == "access_denied" {
++			code = "cancelled"
++		}
++		oidcFail(c, code, redirect)
++		return
++	}
++
++	u, err := oidclogin.ResolveUser(c, p.Config, dep.UserClient(), id)
++	if err != nil {
++		dep.Logger().Warning("OIDC login for subject %q (%s) rejected: %s", id.Subject, id.Email, err)
++		oidcFail(c, oidclogin.ErrorCode(err), redirect)
++		return
++	}
++
++	handle := oidclogin.NewHandle()
++	if err := dep.KV().Set(oidcDonePrefix+handle, u.ID, int(oidclogin.DoneTTL().Seconds())); err != nil {
++		dep.Logger().Error("Failed to store OIDC login: %s", err)
++		oidcFail(c, "failed", redirect)
++		return
++	}
++	p.SetDone(c.Writer, handle)
++	dep.Logger().Info("OIDC login for user %d (subject %q)", u.ID, id.Subject)
++	c.Redirect(http.StatusFound, oidcFrontendPath+"?redirect="+url.QueryEscape(redirect))
++}
++
++// OIDCLoginToken redeems the handle cookie and puts the user in the context;
++// UserIssueToken comes next in the chain.
++func OIDCLoginToken(c *gin.Context) {
++	dep := dependency.FromContext(c)
++	c.Header("Cache-Control", "no-store")
++	p, err := oidclogin.Get()
++	if err != nil {
++		c.JSON(200, serializer.Err(c, serializer.NewError(serializer.CodeNoPermissionErr, "OIDC login is not available", err)))
++		c.Abort()
++		return
++	}
++
++	handle := p.TakeDone(c.Writer, c.Request)
++	if handle == "" {
++		c.JSON(200, serializer.Err(c, serializer.NewError(serializer.CodeParamErr, "No pending sign-in", nil)))
++		c.Abort()
++		return
++	}
++	v, ok := dep.KV().Get(oidcDonePrefix + handle)
++	_ = dep.KV().Delete(oidcDonePrefix, handle)
++	uid, isInt := v.(int)
++	if !ok || !isInt {
++		c.JSON(200, serializer.Err(c, serializer.NewError(serializer.CodeParamErr, "Sign-in expired, please try again", nil)))
++		c.Abort()
++		return
++	}
++
++	u, err := oidclogin.LoadUser(c, dep.UserClient(), uid)
++	if err != nil {
++		c.JSON(200, serializer.Err(c, serializer.NewError(serializer.CodeUserBaned, "This account has been blocked", err)))
++		c.Abort()
++		return
++	}
++	util.WithValue(c, inventory.UserCtx{}, u)
++	c.Next()
++}
++
++func oidcFail(c *gin.Context, code, redirect string) {
++	q := url.Values{"error": {code}}
++	if redirect != "" && redirect != "/home" {
++		q.Set("redirect", redirect)
++	}
++	c.Redirect(http.StatusFound, oidcFrontendPath+"?"+q.Encode())
++	c.Abort()
++}
+diff --git a/routers/router.go b/routers/router.go
+index 846f81a..e78a7a5 100644
+--- a/routers/router.go
++++ b/routers/router.go
+@@ -365,6 +365,18 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
+ 					controllers.UserIssueToken,
+ 				)
+ 			}
++
++			// OpenID Connect login (service/oidclogin)
++			oidcRouter := session.Group("oidc")
++			{
++				oidcRouter.GET("", controllers.OIDCLoginInfo)
++				oidcRouter.GET("login", controllers.OIDCLoginStart)
++				oidcRouter.GET("callback", controllers.OIDCLoginCallback)
++				oidcRouter.POST("token",
++					controllers.OIDCLoginToken,
++					controllers.UserIssueToken,
++				)
++			}
+ 		}
+ 
+ 		// 用户相关路由
+diff --git a/service/oidclogin/oidclogin.go b/service/oidclogin/oidclogin.go
+new file mode 100644
+index 0000000..78041a3
+--- /dev/null
++++ b/service/oidclogin/oidclogin.go
+@@ -0,0 +1,474 @@
++// Package oidclogin lets people sign in with an external OpenID Connect
++// provider (Keycloak): authorization code flow with PKCE, state and nonce,
++// for a confidential client. It is configured from the environment and stays
++// off when OIDC_ISSUER is not set.
++//
++// Flow:
++//  1. GET  /api/v4/session/oidc/login     → provider; the flow's state, nonce and
++//     PKCE verifier travel in an encrypted, HttpOnly cookie.
++//  2. GET  /api/v4/session/oidc/callback  → checks state against that cookie,
++//     redeems the code, verifies the ID token and its nonce, maps it to a user,
++//     and leaves a single-use handle (60 s) in a second HttpOnly cookie.
++//  3. POST /api/v4/session/oidc/token     → redeems the handle for the usual
++//     Cloudreve token pair (the same UserIssueToken step as password login).
++//
++// No token or code ever ends up in a URL that Cloudreve's frontend sees.
++package oidclogin
++
++import (
++	"context"
++	"crypto/aes"
++	"crypto/cipher"
++	"crypto/rand"
++	"crypto/subtle"
++	"encoding/base64"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"net/http"
++	"net/url"
++	"os"
++	"strconv"
++	"strings"
++	"sync"
++	"time"
++
++	"github.com/coreos/go-oidc/v3/oidc"
++	"golang.org/x/oauth2"
++)
++
++const (
++	// Env vars. Not CR_*: Cloudreve logs the values of those.
++	EnvIssuer           = "OIDC_ISSUER"
++	EnvClientID         = "OIDC_CLIENT_ID"
++	EnvClientSecretFile = "OIDC_CLIENT_SECRET_FILE"
++	EnvRedirectURL      = "OIDC_REDIRECT_URL"
++	EnvDisplayName      = "OIDC_DISPLAY_NAME"
++	EnvRoleClaim        = "OIDC_ROLE_CLAIM"
++	EnvRoleGroups       = "OIDC_ROLE_GROUPS"
++
++	// CookiePath limits both cookies to the OIDC endpoints.
++	CookiePath  = "/api/v4/session/oidc"
++	flowCookie  = "cr_oidc_flow"
++	doneCookie  = "cr_oidc_done"
++	flowTTL     = 10 * time.Minute
++	doneTTL     = 60 * time.Second
++	httpTimeout = 15 * time.Second
++)
++
++// RoleGroup maps a role from the ID token to a Cloudreve group ID.
++type RoleGroup struct {
++	Role    string
++	GroupID int
++}
++
++// Config is read once from the environment.
++type Config struct {
++	Issuer       string
++	ClientID     string
++	ClientSecret string
++	RedirectURL  string
++	DisplayName  string
++	RoleClaim    string
++	// RoleGroups in priority order: the first role the user has decides the group.
++	RoleGroups []RoleGroup
++}
++
++// ConfigFromEnv returns nil, nil when OIDC is not configured.
++func ConfigFromEnv() (*Config, error) {
++	issuer := os.Getenv(EnvIssuer)
++	if issuer == "" {
++		return nil, nil
++	}
++
++	cfg := &Config{
++		Issuer:      issuer,
++		ClientID:    os.Getenv(EnvClientID),
++		RedirectURL: os.Getenv(EnvRedirectURL),
++		DisplayName: os.Getenv(EnvDisplayName),
++		RoleClaim:   os.Getenv(EnvRoleClaim),
++	}
++	if cfg.DisplayName == "" {
++		cfg.DisplayName = "OpenID Connect"
++	}
++	if cfg.RoleClaim == "" {
++		cfg.RoleClaim = "roles"
++	}
++	if cfg.ClientID == "" || cfg.RedirectURL == "" {
++		return nil, fmt.Errorf("%s and %s are required with %s", EnvClientID, EnvRedirectURL, EnvIssuer)
++	}
++	if u, err := url.Parse(cfg.RedirectURL); err != nil || !u.IsAbs() {
++		return nil, fmt.Errorf("%s must be an absolute URL", EnvRedirectURL)
++	}
++
++	secretFile := os.Getenv(EnvClientSecretFile)
++	if secretFile == "" {
++		return nil, fmt.Errorf("%s is required with %s", EnvClientSecretFile, EnvIssuer)
++	}
++	secret, err := os.ReadFile(secretFile)
++	if err != nil {
++		return nil, fmt.Errorf("failed to read %s: %w", EnvClientSecretFile, err)
++	}
++	cfg.ClientSecret = strings.TrimSpace(string(secret))
++	if cfg.ClientSecret == "" {
++		return nil, fmt.Errorf("%s is empty", EnvClientSecretFile)
++	}
++
++	cfg.RoleGroups, err = ParseRoleGroups(os.Getenv(EnvRoleGroups))
++	if err != nil {
++		return nil, err
++	}
++	return cfg, nil
++}
++
++// ParseRoleGroups parses "admin=1,user=2".
++func ParseRoleGroups(s string) ([]RoleGroup, error) {
++	var res []RoleGroup
++	for _, part := range strings.Split(s, ",") {
++		part = strings.TrimSpace(part)
++		if part == "" {
++			continue
++		}
++		role, id, ok := strings.Cut(part, "=")
++		gid, err := strconv.Atoi(strings.TrimSpace(id))
++		if !ok || strings.TrimSpace(role) == "" || err != nil || gid <= 0 {
++			return nil, fmt.Errorf("%s: invalid entry %q, expected role=groupID", EnvRoleGroups, part)
++		}
++		res = append(res, RoleGroup{Role: strings.TrimSpace(role), GroupID: gid})
++	}
++	if len(res) == 0 {
++		return nil, fmt.Errorf("%s is required: without it nobody could sign in", EnvRoleGroups)
++	}
++	return res, nil
++}
++
++// GroupFor returns the group of the first configured role the user has.
++func (c *Config) GroupFor(roles []string) (int, bool) {
++	for _, rg := range c.RoleGroups {
++		for _, r := range roles {
++			if r == rg.Role {
++				return rg.GroupID, true
++			}
++		}
++	}
++	return 0, false
++}
++
++// Identity is what Cloudreve takes from a verified ID token.
++type Identity struct {
++	Subject       string
++	Email         string
++	EmailVerified bool
++	Name          string
++	Roles         []string
++}
++
++// Provider holds the discovered provider and the client settings.
++type Provider struct {
++	Config   *Config
++	oauth    oauth2.Config
++	verifier *oidc.IDTokenVerifier
++	client   *http.Client
++	aead     cipher.AEAD
++	now      func() time.Time
++}
++
++var (
++	mu      sync.Mutex
++	current *Provider
++	// The config is read once; a broken one is reported on every request.
++	cfgCache   *Config
++	configErr  error
++	configRead bool
++)
++
++// ErrDisabled is returned when OIDC_ISSUER is not set.
++var ErrDisabled = errors.New("oidc login is not configured")
++
++// Enabled reports whether OIDC is configured (without contacting the provider).
++func Enabled() (*Config, bool) {
++	mu.Lock()
++	defer mu.Unlock()
++	cfg, err := readConfigLocked()
++	return cfg, err == nil && cfg != nil
++}
++
++func readConfigLocked() (*Config, error) {
++	if !configRead {
++		cfgCache, configErr = ConfigFromEnv()
++		configRead = true
++	}
++	return cfgCache, configErr
++}
++
++// Get returns the provider, discovering it on first use. Discovery is retried
++// on the next request when the provider was unreachable.
++func Get() (*Provider, error) {
++	mu.Lock()
++	defer mu.Unlock()
++	if current != nil {
++		return current, nil
++	}
++	cfg, err := readConfigLocked()
++	if err != nil {
++		return nil, err
++	}
++	if cfg == nil {
++		return nil, ErrDisabled
++	}
++	p, err := NewProvider(context.Background(), cfg, &http.Client{Timeout: httpTimeout})
++	if err != nil {
++		return nil, err
++	}
++	current = p
++	return p, nil
++}
++
++// NewProvider discovers the issuer. ctx must outlive the provider: go-oidc
++// uses it for later key set fetches.
++func NewProvider(ctx context.Context, cfg *Config, client *http.Client) (*Provider, error) {
++	ctx = oidc.ClientContext(ctx, client)
++	p, err := oidc.NewProvider(ctx, cfg.Issuer)
++	if err != nil {
++		return nil, fmt.Errorf("failed to discover OIDC issuer: %w", err)
++	}
++
++	// A fresh key per process: a flow that spans a restart has to start over.
++	key := make([]byte, 32)
++	if _, err := rand.Read(key); err != nil {
++		return nil, err
++	}
++	block, err := aes.NewCipher(key)
++	if err != nil {
++		return nil, err
++	}
++	aead, err := cipher.NewGCM(block)
++	if err != nil {
++		return nil, err
++	}
++
++	return &Provider{
++		Config: cfg,
++		oauth: oauth2.Config{
++			ClientID:     cfg.ClientID,
++			ClientSecret: cfg.ClientSecret,
++			Endpoint:     p.Endpoint(),
++			RedirectURL:  cfg.RedirectURL,
++			Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
++		},
++		verifier: p.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
++		client:   client,
++		aead:     aead,
++		now:      time.Now,
++	}, nil
++}
++
++// flowState is what the flow cookie carries between login and callback.
++type flowState struct {
++	State    string `json:"s"`
++	Nonce    string `json:"n"`
++	Verifier string `json:"v"`
++	Redirect string `json:"r"`
++	Expires  int64  `json:"e"`
++}
++
++// Start begins a login: it sets the flow cookie and returns the provider URL.
++func (p *Provider) Start(w http.ResponseWriter, redirect string) (string, error) {
++	st := flowState{
++		State:    randomString(),
++		Nonce:    randomString(),
++		Verifier: oauth2.GenerateVerifier(),
++		Redirect: SafeRedirect(redirect),
++		Expires:  p.now().Add(flowTTL).Unix(),
++	}
++	sealed, err := p.seal(st)
++	if err != nil {
++		return "", err
++	}
++	p.setCookie(w, flowCookie, sealed, flowTTL, http.SameSiteLaxMode)
++	return p.oauth.AuthCodeURL(st.State, oidc.Nonce(st.Nonce), oauth2.S256ChallengeOption(st.Verifier)), nil
++}
++
++// ErrFlow means the callback doesn't belong to a login this browser started
++// (missing, expired or mismatched state).
++var ErrFlow = errors.New("invalid or expired login state")
++
++// Finish handles the callback: checks state, redeems the code and verifies
++// the ID token. It returns the identity and where to go afterwards (empty
++// when the state is unusable, since the redirect came with it).
++func (p *Provider) Finish(ctx context.Context, w http.ResponseWriter, r *http.Request) (*Identity, string, error) {
++	cookie, err := r.Cookie(flowCookie)
++	p.clearCookie(w, flowCookie, http.SameSiteLaxMode)
++	if err != nil {
++		return nil, "", ErrFlow
++	}
++	var st flowState
++	if err := p.open(cookie.Value, &st); err != nil {
++		return nil, "", ErrFlow
++	}
++	q := r.URL.Query()
++	if st.Expires < p.now().Unix() || q.Get("state") == "" ||
++		subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(st.State)) != 1 {
++		return nil, "", ErrFlow
++	}
++	if e := q.Get("error"); e != "" {
++		return nil, st.Redirect, fmt.Errorf("provider returned error %q: %s", e, q.Get("error_description"))
++	}
++	code := q.Get("code")
++	if code == "" {
++		return nil, st.Redirect, errors.New("callback without code")
++	}
++
++	ctx = oidc.ClientContext(ctx, p.client)
++	token, err := p.oauth.Exchange(ctx, code, oauth2.VerifierOption(st.Verifier))
++	if err != nil {
++		return nil, st.Redirect, fmt.Errorf("failed to redeem code: %w", err)
++	}
++	rawID, ok := token.Extra("id_token").(string)
++	if !ok || rawID == "" {
++		return nil, st.Redirect, errors.New("token response without id_token")
++	}
++	idToken, err := p.verifier.Verify(ctx, rawID)
++	if err != nil {
++		return nil, st.Redirect, fmt.Errorf("invalid id_token: %w", err)
++	}
++	if subtle.ConstantTimeCompare([]byte(idToken.Nonce), []byte(st.Nonce)) != 1 {
++		return nil, st.Redirect, errors.New("id_token nonce mismatch")
++	}
++
++	id, err := p.identity(idToken)
++	if err != nil {
++		return nil, st.Redirect, err
++	}
++	return id, st.Redirect, nil
++}
++
++func (p *Provider) identity(idToken *oidc.IDToken) (*Identity, error) {
++	var claims map[string]any
++	if err := idToken.Claims(&claims); err != nil {
++		return nil, fmt.Errorf("failed to parse claims: %w", err)
++	}
++	id := &Identity{Subject: idToken.Subject}
++	if id.Subject == "" {
++		return nil, errors.New("id_token without sub")
++	}
++	id.Email, _ = claims["email"].(string)
++	id.EmailVerified, _ = claims["email_verified"].(bool)
++	id.Name, _ = claims["name"].(string)
++	if id.Name == "" {
++		id.Name, _ = claims["preferred_username"].(string)
++	}
++	if roles, ok := claims[p.Config.RoleClaim].([]any); ok {
++		for _, r := range roles {
++			if s, ok := r.(string); ok {
++				id.Roles = append(id.Roles, s)
++			}
++		}
++	}
++	return id, nil
++}
++
++// SetDone stores the handle of a finished login in its cookie.
++func (p *Provider) SetDone(w http.ResponseWriter, handle string) {
++	p.setCookie(w, doneCookie, handle, doneTTL, http.SameSiteStrictMode)
++}
++
++// TakeDone reads and clears the handle cookie.
++func (p *Provider) TakeDone(w http.ResponseWriter, r *http.Request) string {
++	cookie, err := r.Cookie(doneCookie)
++	p.clearCookie(w, doneCookie, http.SameSiteStrictMode)
++	if err != nil {
++		return ""
++	}
++	return cookie.Value
++}
++
++// DoneTTL is how long a finished login can be picked up.
++func DoneTTL() time.Duration { return doneTTL }
++
++func (p *Provider) secure() bool {
++	return strings.HasPrefix(p.Config.RedirectURL, "https://")
++}
++
++func (p *Provider) setCookie(w http.ResponseWriter, name, value string, ttl time.Duration, ss http.SameSite) {
++	http.SetCookie(w, &http.Cookie{
++		Name:     name,
++		Value:    value,
++		Path:     CookiePath,
++		MaxAge:   int(ttl.Seconds()),
++		HttpOnly: true,
++		Secure:   p.secure(),
++		SameSite: ss,
++	})
++}
++
++func (p *Provider) clearCookie(w http.ResponseWriter, name string, ss http.SameSite) {
++	http.SetCookie(w, &http.Cookie{
++		Name:     name,
++		Value:    "",
++		Path:     CookiePath,
++		MaxAge:   -1,
++		HttpOnly: true,
++		Secure:   p.secure(),
++		SameSite: ss,
++	})
++}
++
++func (p *Provider) seal(v any) (string, error) {
++	plain, err := json.Marshal(v)
++	if err != nil {
++		return "", err
++	}
++	nonce := make([]byte, p.aead.NonceSize())
++	if _, err := rand.Read(nonce); err != nil {
++		return "", err
++	}
++	return base64.RawURLEncoding.EncodeToString(p.aead.Seal(nonce, nonce, plain, []byte(flowCookie))), nil
++}
++
++func (p *Provider) open(s string, v any) error {
++	raw, err := base64.RawURLEncoding.DecodeString(s)
++	if err != nil || len(raw) < p.aead.NonceSize() {
++		return ErrFlow
++	}
++	n := p.aead.NonceSize()
++	plain, err := p.aead.Open(nil, raw[:n], raw[n:], []byte(flowCookie))
++	if err != nil {
++		return ErrFlow
++	}
++	return json.Unmarshal(plain, v)
++}
++
++// SafeRedirect keeps only paths on this site ("/..."), never another host.
++func SafeRedirect(r string) string {
++	const fallback = "/home"
++	if !strings.HasPrefix(r, "/") || strings.HasPrefix(r, "//") ||
++		strings.ContainsAny(r, "\\\x00\r\n\t") {
++		return fallback
++	}
++	u, err := url.Parse(r)
++	if err != nil || u.IsAbs() || u.Host != "" || u.User != nil {
++		return fallback
++	}
++	// Decoded, the path must still be a plain local path.
++	if strings.HasPrefix(u.Path, "//") || strings.ContainsAny(u.Path, "\\") {
++		return fallback
++	}
++	for _, seg := range strings.Split(u.Path, "/") {
++		if seg == ".." || seg == "." {
++			return fallback
++		}
++	}
++	return r
++}
++
++func randomString() string {
++	b := make([]byte, 32)
++	if _, err := rand.Read(b); err != nil {
++		panic(err)
++	}
++	return base64.RawURLEncoding.EncodeToString(b)
++}
++
++// NewHandle returns a random single-use handle for a finished login.
++func NewHandle() string { return randomString() }
+diff --git a/service/oidclogin/oidclogin_test.go b/service/oidclogin/oidclogin_test.go
+new file mode 100644
+index 0000000..e63c07b
+--- /dev/null
++++ b/service/oidclogin/oidclogin_test.go
+@@ -0,0 +1,316 @@
++package oidclogin
++
++import (
++	"context"
++	"crypto/rand"
++	"crypto/rsa"
++	"crypto/sha256"
++	"encoding/base64"
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/go-jose/go-jose/v4"
++)
++
++const (
++	testClientID     = "cloudreve"
++	testClientSecret = "s3cret"
++	testRedirect     = "https://files.example.org/api/v4/session/oidc/callback"
++)
++
++// fakeIssuer is a minimal OIDC provider: discovery, JWKS and a token
++// endpoint that checks the client secret, the code and the PKCE verifier.
++type fakeIssuer struct {
++	srv  *httptest.Server
++	key  *rsa.PrivateKey
++	kid  string
++	code string
++	// set by the test before the token request
++	challenge string
++	claims    map[string]any
++	signWith  *rsa.PrivateKey
++}
++
++func newFakeIssuer(t *testing.T) *fakeIssuer {
++	t.Helper()
++	key, err := rsa.GenerateKey(rand.Reader, 2048)
++	if err != nil {
++		t.Fatal(err)
++	}
++	f := &fakeIssuer{key: key, kid: "k1", code: "the-code"}
++	mux := http.NewServeMux()
++	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
++		_ = json.NewEncoder(w).Encode(map[string]any{
++			"issuer":                                f.srv.URL,
++			"authorization_endpoint":                f.srv.URL + "/auth",
++			"token_endpoint":                        f.srv.URL + "/token",
++			"jwks_uri":                              f.srv.URL + "/jwks",
++			"id_token_signing_alg_values_supported": []string{"RS256"},
++		})
++	})
++	mux.HandleFunc("/jwks", func(w http.ResponseWriter, r *http.Request) {
++		_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{
++			{Key: &f.key.PublicKey, KeyID: f.kid, Algorithm: "RS256", Use: "sig"},
++		}})
++	})
++	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
++		_ = r.ParseForm()
++		id, secret, _ := r.BasicAuth()
++		if id != testClientID || secret != testClientSecret {
++			http.Error(w, `{"error":"invalid_client"}`, 401)
++			return
++		}
++		sum := sha256.Sum256([]byte(r.PostForm.Get("code_verifier")))
++		if r.PostForm.Get("code") != f.code || r.PostForm.Get("redirect_uri") != testRedirect ||
++			base64.RawURLEncoding.EncodeToString(sum[:]) != f.challenge {
++			http.Error(w, `{"error":"invalid_grant"}`, 400)
++			return
++		}
++		w.Header().Set("Content-Type", "application/json")
++		_ = json.NewEncoder(w).Encode(map[string]any{
++			"access_token": "at", "token_type": "Bearer", "expires_in": 300,
++			"id_token": f.sign(t),
++		})
++	})
++	f.srv = httptest.NewServer(mux)
++	t.Cleanup(f.srv.Close)
++	return f
++}
++
++func (f *fakeIssuer) sign(t *testing.T) string {
++	key := f.key
++	if f.signWith != nil {
++		key = f.signWith
++	}
++	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: key},
++		(&jose.SignerOptions{}).WithHeader("kid", f.kid))
++	if err != nil {
++		t.Fatal(err)
++	}
++	payload, _ := json.Marshal(f.claims)
++	obj, err := signer.Sign(payload)
++	if err != nil {
++		t.Fatal(err)
++	}
++	s, _ := obj.CompactSerialize()
++	return s
++}
++
++func (f *fakeIssuer) baseClaims(nonce string) map[string]any {
++	now := time.Now()
++	return map[string]any{
++		"iss": f.srv.URL, "aud": testClientID, "sub": "user-1",
++		"iat": now.Unix(), "exp": now.Add(5 * time.Minute).Unix(),
++		"nonce": nonce, "email": "a@example.org", "email_verified": true,
++		"name": "Alice", "roles": []string{"user"},
++	}
++}
++
++func newTestProvider(t *testing.T, f *fakeIssuer) *Provider {
++	t.Helper()
++	cfg := &Config{
++		Issuer: f.srv.URL, ClientID: testClientID, ClientSecret: testClientSecret,
++		RedirectURL: testRedirect, RoleClaim: "roles",
++		RoleGroups: []RoleGroup{{"admin", 1}, {"user", 2}},
++	}
++	p, err := NewProvider(context.Background(), cfg, f.srv.Client())
++	if err != nil {
++		t.Fatal(err)
++	}
++	return p
++}
++
++// start runs Start and returns the flow cookie and the auth URL's query.
++func start(t *testing.T, p *Provider, redirect string) (*http.Cookie, url.Values) {
++	t.Helper()
++	rec := httptest.NewRecorder()
++	target, err := p.Start(rec, redirect)
++	if err != nil {
++		t.Fatal(err)
++	}
++	u, _ := url.Parse(target)
++	cookies := rec.Result().Cookies()
++	if len(cookies) != 1 || cookies[0].Name != flowCookie {
++		t.Fatalf("expected the flow cookie, got %v", cookies)
++	}
++	c := cookies[0]
++	if !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteLaxMode || c.Path != CookiePath {
++		t.Fatalf("flow cookie attributes: %+v", c)
++	}
++	return c, u.Query()
++}
++
++// unsealNonce reads the nonce back from the flow cookie the way the callback does.
++func unsealNonce(t *testing.T, p *Provider, c *http.Cookie) string {
++	var st flowState
++	if err := p.open(c.Value, &st); err != nil {
++		t.Fatal(err)
++	}
++	return st.Nonce
++}
++
++func callback(p *Provider, cookie *http.Cookie, query string) (*Identity, string, error) {
++	req := httptest.NewRequest("GET", "/api/v4/session/oidc/callback?"+query, nil)
++	if cookie != nil {
++		req.AddCookie(cookie)
++	}
++	return p.Finish(context.Background(), httptest.NewRecorder(), req)
++}
++
++func TestFlow(t *testing.T) {
++	f := newFakeIssuer(t)
++	p := newTestProvider(t, f)
++
++	cookie, q := start(t, p, "/home?path=cloudreve%3A%2F%2Fmy")
++	if q.Get("code_challenge_method") != "S256" || q.Get("client_id") != testClientID ||
++		q.Get("redirect_uri") != testRedirect || !strings.Contains(q.Get("scope"), "openid") {
++		t.Fatalf("auth request: %v", q)
++	}
++	f.challenge = q.Get("code_challenge")
++	nonce := unsealNonce(t, p, cookie)
++	if q.Get("nonce") != nonce {
++		t.Fatal("nonce not sent")
++	}
++
++	tests := []struct {
++		name    string
++		mutate  func(claims map[string]any)
++		cookie  *http.Cookie
++		query   string
++		wantErr bool
++	}{
++		{name: "ok"},
++		{name: "no cookie", cookie: &http.Cookie{Name: "other"}, wantErr: true},
++		{name: "tampered cookie", cookie: &http.Cookie{Name: flowCookie, Value: cookie.Value[:len(cookie.Value)-4] + "AAAA"}, wantErr: true},
++		{name: "state mismatch", query: "state=wrong&code=the-code", wantErr: true},
++		{name: "missing state", query: "code=the-code", wantErr: true},
++		{name: "wrong code", query: "state=" + q.Get("state") + "&code=nope", wantErr: true},
++		{name: "provider error", query: "state=" + q.Get("state") + "&error=access_denied", wantErr: true},
++		{name: "nonce mismatch", mutate: func(c map[string]any) { c["nonce"] = "x" }, wantErr: true},
++		{name: "no nonce", mutate: func(c map[string]any) { delete(c, "nonce") }, wantErr: true},
++		{name: "wrong audience", mutate: func(c map[string]any) { c["aud"] = "other-app" }, wantErr: true},
++		{name: "wrong issuer", mutate: func(c map[string]any) { c["iss"] = "https://evil.example" }, wantErr: true},
++		{name: "expired", mutate: func(c map[string]any) { c["exp"] = time.Now().Add(-time.Minute).Unix() }, wantErr: true},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			f.claims = f.baseClaims(nonce)
++			if tt.mutate != nil {
++				tt.mutate(f.claims)
++			}
++			c := cookie
++			if tt.cookie != nil {
++				c = tt.cookie
++			}
++			query := tt.query
++			if query == "" {
++				query = "state=" + q.Get("state") + "&code=the-code"
++			}
++			id, redirect, err := callback(p, c, query)
++			if tt.wantErr {
++				if err == nil {
++					t.Fatal("expected an error")
++				}
++				return
++			}
++			if err != nil {
++				t.Fatal(err)
++			}
++			if redirect != "/home?path=cloudreve%3A%2F%2Fmy" {
++				t.Fatalf("redirect = %q", redirect)
++			}
++			if id.Subject != "user-1" || id.Email != "a@example.org" || !id.EmailVerified ||
++				id.Name != "Alice" || len(id.Roles) != 1 || id.Roles[0] != "user" {
++				t.Fatalf("identity = %+v", id)
++			}
++		})
++	}
++}
++
++func TestBadSignature(t *testing.T) {
++	f := newFakeIssuer(t)
++	p := newTestProvider(t, f)
++	cookie, q := start(t, p, "")
++	f.challenge = q.Get("code_challenge")
++	f.claims = f.baseClaims(unsealNonce(t, p, cookie))
++	other, _ := rsa.GenerateKey(rand.Reader, 2048)
++	f.signWith = other
++	if _, _, err := callback(p, cookie, "state="+q.Get("state")+"&code=the-code"); err == nil {
++		t.Fatal("token signed with another key was accepted")
++	}
++}
++
++func TestFlowExpires(t *testing.T) {
++	f := newFakeIssuer(t)
++	p := newTestProvider(t, f)
++	cookie, q := start(t, p, "")
++	f.challenge = q.Get("code_challenge")
++	f.claims = f.baseClaims(unsealNonce(t, p, cookie))
++	p.now = func() time.Time { return time.Now().Add(flowTTL + time.Second) }
++	if _, _, err := callback(p, cookie, "state="+q.Get("state")+"&code=the-code"); err != ErrFlow {
++		t.Fatalf("expected ErrFlow, got %v", err)
++	}
++}
++
++func TestCookieFromOtherProcess(t *testing.T) {
++	f := newFakeIssuer(t)
++	p1 := newTestProvider(t, f)
++	p2 := newTestProvider(t, f)
++	cookie, q := start(t, p1, "")
++	if _, _, err := callback(p2, cookie, "state="+q.Get("state")+"&code=the-code"); err != ErrFlow {
++		t.Fatalf("expected ErrFlow, got %v", err)
++	}
++}
++
++func TestSafeRedirect(t *testing.T) {
++	for in, want := range map[string]string{
++		"":                           "/home",
++		"/home?path=x":               "/home?path=x",
++		"/s/abc":                     "/s/abc",
++		"//evil.example":             "/home",
++		"/\\evil.example":            "/home",
++		"https://evil.example":       "/home",
++		"javascript:alert(1)":        "/home",
++		"evil.example":               "/home",
++		"/ok\r\nSet-Cookie: x=y":     "/home",
++		"/%2F%2Fevil.example":        "/home",
++		"/%5Cevil.example":           "/home",
++		"/home/a%20b":                "/home/a%20b",
++		"\t//evil.example":           "/home",
++		"/home#frag":                 "/home#frag",
++		"/..//evil.example":          "/home",
++		"/./x":                       "/home",
++		"https:/\\/evil.example/x/y": "/home",
++	} {
++		if got := SafeRedirect(in); got != want {
++			t.Errorf("SafeRedirect(%q) = %q, want %q", in, got, want)
++		}
++	}
++}
++
++func TestParseRoleGroups(t *testing.T) {
++	rg, err := ParseRoleGroups(" admin=1, user=2 ,")
++	if err != nil || len(rg) != 2 || rg[0] != (RoleGroup{"admin", 1}) || rg[1] != (RoleGroup{"user", 2}) {
++		t.Fatalf("got %v, %v", rg, err)
++	}
++	for _, bad := range []string{"", "admin", "admin=", "=1", "admin=x", "admin=0", "admin=-1"} {
++		if _, err := ParseRoleGroups(bad); err == nil {
++			t.Errorf("ParseRoleGroups(%q) accepted", bad)
++		}
++	}
++	cfg := &Config{RoleGroups: rg}
++	if g, ok := cfg.GroupFor([]string{"user", "admin"}); !ok || g != 1 {
++		t.Errorf("admin should win: %d %v", g, ok)
++	}
++	if _, ok := cfg.GroupFor([]string{"other"}); ok {
++		t.Error("unknown role got access")
++	}
++	if _, ok := cfg.GroupFor(nil); ok {
++		t.Error("no roles got access")
++	}
++}
+diff --git a/service/oidclogin/user.go b/service/oidclogin/user.go
+new file mode 100644
+index 0000000..643c31f
+--- /dev/null
++++ b/service/oidclogin/user.go
+@@ -0,0 +1,166 @@
++package oidclogin
++
++import (
++	"context"
++	"errors"
++	"fmt"
++
++	"entgo.io/ent/dialect/sql"
++	"entgo.io/ent/dialect/sql/sqljson"
++	"github.com/cloudreve/Cloudreve/v4/ent"
++	"github.com/cloudreve/Cloudreve/v4/ent/predicate"
++	"github.com/cloudreve/Cloudreve/v4/ent/user"
++	"github.com/cloudreve/Cloudreve/v4/inventory"
++	"github.com/cloudreve/Cloudreve/v4/inventory/types"
++)
++
++// Reasons a verified identity can't sign in. Their Code is shown to the
++// person (as /session/oidc?error=<code>); details only go to the log.
++var (
++	ErrNoRole     = &LoginError{"no_access", "user has none of the configured roles"}
++	ErrNoEmail    = &LoginError{"no_email", "identity has no email address"}
++	ErrUnverified = &LoginError{"unverified", "email not verified at the provider; it matches an existing account that isn't linked yet"}
++	ErrConflict   = &LoginError{"conflict", "the account with this email is linked to a different identity"}
++	ErrBlocked    = &LoginError{"blocked", "account is not active"}
++)
++
++// LoginError is a refusal with a code that is safe to show.
++type LoginError struct {
++	Code string
++	msg  string
++}
++
++func (e *LoginError) Error() string { return e.msg }
++
++// ErrorCode is the code to show for err: a LoginError's own, else "failed".
++func ErrorCode(err error) string {
++	var le *LoginError
++	if errors.As(err, &le) {
++		return le.Code
++	}
++	return "failed"
++}
++
++// ResolveUser finds or creates the Cloudreve user for id and syncs its group.
++//
++//   - An account already linked to this subject (settings.oidc_sub) is used.
++//   - Otherwise an unlinked account with the same email is linked, but only
++//     when the provider says the email is verified.
++//   - Otherwise a new account is created.
++//
++// The group always follows the roles in the token, so taking a role away at
++// the provider takes the access away at the next sign-in.
++func ResolveUser(ctx context.Context, cfg *Config, uc inventory.UserClient, id *Identity) (*ent.User, error) {
++	groupID, ok := cfg.GroupFor(id.Roles)
++	if !ok {
++		return nil, ErrNoRole
++	}
++
++	client := uc.GetClient()
++	linked, err := client.User.Query().Where(subjectIs(id.Subject)).IDs(ctx)
++	if err != nil {
++		return nil, fmt.Errorf("failed to look up linked user: %w", err)
++	}
++
++	var uid int
++	switch {
++	case len(linked) > 1:
++		return nil, fmt.Errorf("%d users linked to subject %q", len(linked), id.Subject)
++	case len(linked) == 1:
++		uid = linked[0]
++	default:
++		if id.Email == "" {
++			return nil, ErrNoEmail
++		}
++		existing, err := uc.GetByEmail(ctx, id.Email)
++		switch {
++		case err == nil:
++			if existing.Settings != nil && existing.Settings.OIDCSubject != "" {
++				return nil, ErrConflict
++			}
++			if !id.EmailVerified {
++				return nil, ErrUnverified
++			}
++			uid = existing.ID
++		case ent.IsNotFound(err):
++			created, err := uc.Create(ctx, &inventory.NewUserArgs{
++				Email:   id.Email,
++				Nick:    id.Name,
++				Status:  user.StatusActive,
++				GroupID: groupID,
++			})
++			if err != nil {
++				return nil, fmt.Errorf("failed to create user: %w", err)
++			}
++			uid = created.ID
++		default:
++			return nil, fmt.Errorf("failed to look up user by email: %w", err)
++		}
++		if err := link(ctx, client, uid, id.Subject); err != nil {
++			return nil, err
++		}
++	}
++
++	u, err := client.User.Get(ctx, uid)
++	if err != nil {
++		return nil, fmt.Errorf("failed to load user: %w", err)
++	}
++	if u.Status != user.StatusActive {
++		return nil, ErrBlocked
++	}
++	if u.GroupUsers != groupID {
++		if err := client.User.UpdateOneID(uid).SetGroupID(groupID).Exec(ctx); err != nil {
++			return nil, fmt.Errorf("failed to update group: %w", err)
++		}
++	}
++
++	return LoadUser(ctx, uc, uid)
++}
++
++// LoadUser loads an active user with its group, as login handlers expect.
++func LoadUser(ctx context.Context, uc inventory.UserClient, uid int) (*ent.User, error) {
++	ctx = context.WithValue(ctx, inventory.LoadUserGroup{}, true)
++	u, err := uc.GetActiveByID(ctx, uid)
++	if err != nil {
++		return nil, ErrBlocked
++	}
++	return u, nil
++}
++
++// link stores the subject in the user's settings. Done in a transaction that
++// re-checks nobody else got linked to this subject or this user meanwhile.
++func link(ctx context.Context, client *ent.Client, uid int, subject string) error {
++	tx, err := client.Tx(ctx)
++	if err != nil {
++		return err
++	}
++	defer tx.Rollback()
++
++	if n, err := tx.User.Query().Where(subjectIs(subject)).Count(ctx); err != nil {
++		return err
++	} else if n > 0 {
++		return ErrConflict
++	}
++	u, err := tx.User.Get(ctx, uid)
++	if err != nil {
++		return err
++	}
++	settings := u.Settings
++	if settings == nil {
++		settings = &types.UserSetting{}
++	}
++	if settings.OIDCSubject != "" {
++		return ErrConflict
++	}
++	settings.OIDCSubject = subject
++	if err := tx.User.UpdateOneID(uid).SetSettings(settings).Exec(ctx); err != nil {
++		return fmt.Errorf("failed to link user: %w", err)
++	}
++	return tx.Commit()
++}
++
++func subjectIs(subject string) predicate.User {
++	return func(s *sql.Selector) {
++		s.Where(sqljson.ValueEQ(user.FieldSettings, subject, sqljson.Path("oidc_sub")))
++	}
++}
+diff --git a/service/oidclogin/user_test.go b/service/oidclogin/user_test.go
+new file mode 100644
+index 0000000..9e9730b
+--- /dev/null
++++ b/service/oidclogin/user_test.go
+@@ -0,0 +1,133 @@
++package oidclogin
++
++import (
++	"context"
++	"fmt"
++	"os"
++	"testing"
++
++	"github.com/cloudreve/Cloudreve/v4/ent"
++	"github.com/cloudreve/Cloudreve/v4/ent/enttest"
++	_ "github.com/cloudreve/Cloudreve/v4/ent/runtime"
++	"github.com/cloudreve/Cloudreve/v4/ent/user"
++	"github.com/cloudreve/Cloudreve/v4/inventory"
++	"github.com/cloudreve/Cloudreve/v4/inventory/types"
++	"github.com/cloudreve/Cloudreve/v4/pkg/boolset"
++	_ "github.com/lib/pq"
++)
++
++// newTestDB opens SQLite in memory, or a fresh Postgres database when OIDC_TEST_PG
++// is set to its DSN (production runs Postgres, and the JSON lookup is dialect-specific).
++func newTestDB(t *testing.T) *ent.Client {
++	t.Helper()
++	var client *ent.Client
++	if dsn := os.Getenv("OIDC_TEST_PG"); dsn != "" {
++		client = enttest.Open(t, "postgres", dsn)
++	} else {
++		client = enttest.Open(t, "sqlite3", fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()))
++	}
++	t.Cleanup(func() { client.Close() })
++	ctx := context.Background()
++	// IDs 1, 2, 3 as on a real install (the database must be fresh).
++	for _, name := range []string{"Admin", "User", "Anonymous"} {
++		client.Group.Create().SetName(name).SetPermissions(&boolset.BooleanSet{}).ExecX(ctx)
++	}
++	// The first user is the local admin, as on a real install.
++	client.User.Create().SetEmail("admin@example.org").SetNick("admin").SetGroupID(1).
++		SetPassword("x:y").SetSettings(&types.UserSetting{}).ExecX(ctx)
++	return client
++}
++
++var testCfg = &Config{RoleGroups: []RoleGroup{{"admin", 1}, {"user", 2}}}
++
++func ident(sub, email string, verified bool, roles ...string) *Identity {
++	return &Identity{Subject: sub, Email: email, EmailVerified: verified, Name: "N " + sub, Roles: roles}
++}
++
++func TestResolveUser(t *testing.T) {
++	client := newTestDB(t)
++	uc := inventory.NewUserClient(client)
++	ctx := context.Background()
++
++	// New person: created, linked, in the role's group, with its group loaded.
++	u, err := ResolveUser(ctx, testCfg, uc, ident("s-bob", "bob@example.org", false, "user"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if u.Email != "bob@example.org" || u.GroupUsers != 2 || u.Settings.OIDCSubject != "s-bob" ||
++		u.Edges.Group == nil || u.Password != "" || u.Nick != "N s-bob" {
++		t.Fatalf("created user: %+v", u)
++	}
++
++	// Next login finds it by subject, even after the email changed at the provider.
++	u2, err := ResolveUser(ctx, testCfg, uc, ident("s-bob", "robert@example.org", true, "user"))
++	if err != nil || u2.ID != u.ID {
++		t.Fatalf("lookup by subject: %v %v", u2, err)
++	}
++
++	// Role change at the provider changes the group.
++	u3, err := ResolveUser(ctx, testCfg, uc, ident("s-bob", "", false, "admin", "user"))
++	if err != nil || u3.GroupUsers != 1 || u3.Edges.Group.ID != 1 {
++		t.Fatalf("promotion: %+v %v", u3, err)
++	}
++	u4, err := ResolveUser(ctx, testCfg, uc, ident("s-bob", "", false, "user"))
++	if err != nil || u4.GroupUsers != 2 {
++		t.Fatalf("demotion: %+v %v", u4, err)
++	}
++
++	// No role: no access, even for a linked account.
++	if _, err := ResolveUser(ctx, testCfg, uc, ident("s-bob", "", false)); err != ErrNoRole {
++		t.Fatalf("no role: %v", err)
++	}
++	if _, err := ResolveUser(ctx, testCfg, uc, ident("s-new", "new@example.org", true, "other")); err != ErrNoRole {
++		t.Fatalf("unknown role: %v", err)
++	}
++	if n := client.User.Query().Where(user.EmailEQ("new@example.org")).CountX(ctx); n != 0 {
++		t.Fatal("user created without a role")
++	}
++
++	// Existing local account: unverified email doesn't link it.
++	if _, err := ResolveUser(ctx, testCfg, uc, ident("s-admin", "ADMIN@example.org", false, "admin")); err != ErrUnverified {
++		t.Fatalf("unverified link: %v", err)
++	}
++	// Verified email links it (case-insensitive, like password login).
++	a, err := ResolveUser(ctx, testCfg, uc, ident("s-admin", "ADMIN@example.org", true, "admin"))
++	if err != nil || a.ID != 1 || a.Settings.OIDCSubject != "s-admin" || a.Password != "x:y" {
++		t.Fatalf("link: %+v %v", a, err)
++	}
++
++	// Another identity with the same (verified) email can't take the linked account.
++	if _, err := ResolveUser(ctx, testCfg, uc, ident("s-evil", "admin@example.org", true, "admin")); err != ErrConflict {
++		t.Fatalf("takeover: %v", err)
++	}
++
++	// No email and not linked: refused.
++	if _, err := ResolveUser(ctx, testCfg, uc, ident("s-x", "", true, "user")); err != ErrNoEmail {
++		t.Fatalf("no email: %v", err)
++	}
++
++	// Blocked accounts stay blocked.
++	client.User.UpdateOneID(u.ID).SetStatus(user.StatusManualBanned).ExecX(ctx)
++	if _, err := ResolveUser(ctx, testCfg, uc, ident("s-bob", "", false, "user")); err != ErrBlocked {
++		t.Fatalf("banned: %v", err)
++	}
++	if _, err := LoadUser(ctx, uc, u.ID); err != ErrBlocked {
++		t.Fatalf("banned LoadUser: %v", err)
++	}
++
++	// Other settings survive the link and later settings saves keep it.
++	a.Settings.PreferredTheme = "#123456"
++	if err := uc.SaveSettings(ctx, a); err != nil {
++		t.Fatal(err)
++	}
++	if got := client.User.GetX(ctx, 1).Settings; got.OIDCSubject != "s-admin" || got.PreferredTheme != "#123456" {
++		t.Fatalf("settings after save: %+v", got)
++	}
++}
++
++func TestErrorCode(t *testing.T) {
++	if ErrorCode(ErrConflict) != "conflict" || ErrorCode(fmt.Errorf("wrap: %w", ErrNoRole)) != "no_access" ||
++		ErrorCode(fmt.Errorf("db down")) != "failed" {
++		t.Fatal("error codes")
++	}
++}

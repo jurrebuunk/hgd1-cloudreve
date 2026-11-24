@@ -1,0 +1,76 @@
+name: Image
+
+# Builds image/ (Cloudreve with our patches; the build runs the patch's
+# tests). On main it publishes ghcr.io/jurrebuunk/hgd1-cloudreve:<image/VERSION>
+# once: a version that is already published is never overwritten, so bump
+# image/VERSION with every change to image/.
+on:
+  push:
+    branches: [main]
+    paths: ["image/**", ".github/workflows/image.yml"]
+  pull_request:
+    paths: ["image/**", ".github/workflows/image.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write      # push to ghcr.io
+  id-token: write      # sign the provenance attestation
+  attestations: write  # store it on GitHub
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/jurrebuunk/hgd1-cloudreve
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        run: echo "tag=$(cat image/VERSION)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Not published yet
+        id: check
+        if: github.event_name != 'pull_request'
+        run: |
+          if docker manifest inspect "$IMAGE:${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::$IMAGE:${{ steps.version.outputs.tag }} already exists; bump image/VERSION"
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: image
+          file: image/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}
+
+      - name: Attest build provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Digest
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "Image: $IMAGE:${{ steps.version.outputs.tag }}@${{ steps.build.outputs.digest }}" | tee -a "$GITHUB_STEP_SUMMARY"

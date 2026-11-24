@@ -1,0 +1,258 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jurrebuunk <jurrebuunk@gmail.com>
+Date: Tue, 24 Nov 2026 22:42:41 +0100
+Subject: [PATCH] OpenID Connect login
+
+A sign-in button for the OIDC provider (shown when the backend has one
+configured) and the page /session/oidc that finishes the sign-in.
+---
+ src/api/api.ts                                | 43 +++++++++++
+ src/component/Pages/Login/OidcCallback.tsx    | 74 +++++++++++++++++++
+ .../Pages/Login/Phases/PhaseCollectEmail.tsx  | 10 ++-
+ .../Pages/Login/Signin/OidcLoginButton.tsx    | 46 ++++++++++++
+ src/router/index.tsx                          |  5 ++
+ 5 files changed, 176 insertions(+), 2 deletions(-)
+ create mode 100644 src/component/Pages/Login/OidcCallback.tsx
+ create mode 100644 src/component/Pages/Login/Signin/OidcLoginButton.tsx
+
+diff --git a/src/api/api.ts b/src/api/api.ts
+index 6cc4499..bdf7a75 100644
+--- a/src/api/api.ts
++++ b/src/api/api.ts
+@@ -2189,3 +2189,46 @@ export function sendRebuildFTSIndex(req: RebuildFTSIndexWorkflowService): ThunkR
+     );
+   };
+ }
++
++export interface OidcLoginInfo {
++  enabled: boolean;
++  display_name?: string;
++}
++
++// OpenID Connect login (backend: service/oidclogin).
++export function getOidcLoginInfo(): ThunkResponse<OidcLoginInfo> {
++  return async (dispatch, _getState) => {
++    return await dispatch(
++      send(
++        `/session/oidc`,
++        {
++          method: "GET",
++        },
++        {
++          ...defaultOpts,
++          noCredential: true,
++          bypassSnackbar: () => true,
++        },
++      ),
++    );
++  };
++}
++
++// Redeems the finished OIDC login (an HttpOnly cookie) for a token pair.
++export function sendOidcLoginToken(): ThunkResponse<LoginResponse> {
++  return async (dispatch, _getState) => {
++    return await dispatch(
++      send(
++        `/session/oidc/token`,
++        {
++          method: "POST",
++        },
++        {
++          ...defaultOpts,
++          noCredential: true,
++          bypassSnackbar: () => true,
++        },
++      ),
++    );
++  };
++}
+diff --git a/src/component/Pages/Login/OidcCallback.tsx b/src/component/Pages/Login/OidcCallback.tsx
+new file mode 100644
+index 0000000..9c9cab7
+--- /dev/null
++++ b/src/component/Pages/Login/OidcCallback.tsx
+@@ -0,0 +1,74 @@
++import { Box, Button, Typography } from "@mui/material";
++import { useEffect, useState } from "react";
++import { useTranslation } from "react-i18next";
++import { useNavigate } from "react-router-dom";
++import { sendOidcLoginToken } from "../../../api/api.ts";
++import { setHeadlessFrameLoading } from "../../../redux/globalStateSlice.ts";
++import { useAppDispatch } from "../../../redux/hooks.ts";
++import { refreshUserSession } from "../../../redux/thunks/session.ts";
++import PageTitle from "../../../router/PageTitle.tsx";
++import { useQuery } from "../../../util";
++import DismissCircleFilled from "../../Icons/DismissCircleFilled.tsx";
++
++// Messages for the error codes of the backend (service/oidclogin).
++const errorMessages: { [code: string]: string } = {
++  cancelled: "Sign-in was cancelled.",
++  no_access: "Your account has no access to this site. Ask an administrator for access.",
++  unverified:
++    "An account with your email address already exists here. An administrator has to mark your email address as verified before you can use it.",
++  conflict: "The account with your email address is already linked to someone else.",
++  blocked: "This account has been blocked.",
++  no_email: "Your account has no email address.",
++  unavailable: "Single sign-on is not available right now. Please try again later.",
++  failed: "Sign-in failed. Please try again.",
++};
++
++// Finishes an OpenID Connect sign-in: the backend left the result in an
++// HttpOnly cookie, which is redeemed here for a normal session.
++const OidcCallback = () => {
++  const { t } = useTranslation();
++  const dispatch = useAppDispatch();
++  const navigate = useNavigate();
++  const query = useQuery();
++  const [error, setError] = useState<string | undefined>(undefined);
++  const redirect = query.get("redirect");
++
++  useEffect(() => {
++    const code = query.get("error");
++    if (code) {
++      setError(code);
++      return;
++    }
++
++    dispatch(setHeadlessFrameLoading(true));
++    dispatch(sendOidcLoginToken())
++      .then((response) => {
++        dispatch(refreshUserSession(response, redirect));
++      })
++      .catch(() => setError("failed"))
++      .finally(() => dispatch(setHeadlessFrameLoading(false)));
++  }, []);
++
++  const back = () => navigate("/session" + (redirect ? "?redirect=" + encodeURIComponent(redirect) : ""));
++
++  return (
++    <Box>
++      <PageTitle title={t("login.signIn")} />
++      {error && (
++        <>
++          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 5 }}>
++            <DismissCircleFilled fontSize={"large"} color={"error"} />
++            <Typography variant={"body1"} sx={{ mt: 2, textAlign: "center" }}>
++              {t("login.oidcError." + error, { defaultValue: errorMessages[error] ?? errorMessages.failed })}
++            </Typography>
++          </Box>
++          <Button onClick={back} fullWidth variant="contained" color="primary">
++            {t("login.backToSingIn")}
++          </Button>
++        </>
++      )}
++    </Box>
++  );
++};
++
++export default OidcCallback;
+diff --git a/src/component/Pages/Login/Phases/PhaseCollectEmail.tsx b/src/component/Pages/Login/Phases/PhaseCollectEmail.tsx
+index 423836b..fec7ed8 100644
+--- a/src/component/Pages/Login/Phases/PhaseCollectEmail.tsx
++++ b/src/component/Pages/Login/Phases/PhaseCollectEmail.tsx
+@@ -7,6 +7,7 @@ import { useAppSelector } from "../../../../redux/hooks.ts";
+ import { useQuery } from "../../../../util";
+ import { OutlineIconTextField } from "../../../Common/Form/OutlineIconTextField.tsx";
+ import MailOutlined from "../../../Icons/MailOutlined.tsx";
++import OidcLoginButton, { useOidcLogin } from "../Signin/OidcLoginButton.tsx";
+ import PasskeyLoginButton from "../Signin/PasskeyLoginButton.tsx";
+ import { Control } from "../Signin/SignIn.tsx";
+ 
+@@ -56,7 +57,9 @@ const PhaseCollectEmail = ({ email, setEmail, control, onOAuthPasskeyLogin }: Ph
+   const tos = useAppSelector((state) => state.siteConfig.login.config.tos_url);
+   const privacyPolicy = useAppSelector((state) => state.siteConfig.login.config.privacy_policy_url);
+ 
+-  const showFooter = tos || privacyPolicy || authn;
++  const oidcName = useOidcLogin();
++
++  const showFooter = tos || privacyPolicy || authn || oidcName;
+ 
+   useEffect(() => {
+     if (!!query.get("email")) {
+@@ -97,7 +100,10 @@ const PhaseCollectEmail = ({ email, setEmail, control, onOAuthPasskeyLogin }: Ph
+       {showFooter && (
+         <>
+           <Divider sx={{ my: 2 }} />
+-          <Stack spacing={1}>{authn && <PasskeyLoginButton autoComplete onLoginSuccess={onOAuthPasskeyLogin} />}</Stack>
++          <Stack spacing={1}>
++            {oidcName && <OidcLoginButton name={oidcName} />}
++            {authn && <PasskeyLoginButton autoComplete onLoginSuccess={onOAuthPasskeyLogin} />}
++          </Stack>
+           <LegalLinks />
+         </>
+       )}
+diff --git a/src/component/Pages/Login/Signin/OidcLoginButton.tsx b/src/component/Pages/Login/Signin/OidcLoginButton.tsx
+new file mode 100644
+index 0000000..a956dc4
+--- /dev/null
++++ b/src/component/Pages/Login/Signin/OidcLoginButton.tsx
+@@ -0,0 +1,46 @@
++import { Button, ButtonProps } from "@mui/material";
++import { useEffect, useState } from "react";
++import { useTranslation } from "react-i18next";
++import { getOidcLoginInfo } from "../../../../api/api.ts";
++import { ApiPrefix } from "../../../../api/request.ts";
++import { useAppDispatch } from "../../../../redux/hooks.ts";
++import { useQuery } from "../../../../util";
++import PersonLock from "../../../Icons/PersonLock.tsx";
++
++// The provider's display name when OIDC login is configured, else undefined.
++export function useOidcLogin(): string | undefined {
++  const dispatch = useAppDispatch();
++  const [name, setName] = useState<string | undefined>(undefined);
++  useEffect(() => {
++    dispatch(getOidcLoginInfo())
++      .then((info) => setName(info.enabled ? info.display_name : undefined))
++      .catch(() => setName(undefined));
++  }, []);
++  return name;
++}
++
++interface OidcLoginButtonProps extends ButtonProps {
++  name: string;
++}
++
++// Sign in through the OpenID Connect provider (backend: service/oidclogin).
++export default function OidcLoginButton({ name, ...rest }: OidcLoginButtonProps) {
++  const { t } = useTranslation();
++  const query = useQuery();
++
++  const start = () => {
++    // Back to where sign-in was asked for; inside the OAuth consent flow that
++    // is this page itself.
++    let redirect = query.get("redirect") ?? "";
++    if (!redirect && window.location.pathname !== "/session") {
++      redirect = window.location.pathname + window.location.search;
++    }
++    window.location.assign(`${ApiPrefix}/session/oidc/login?redirect=${encodeURIComponent(redirect)}`);
++  };
++
++  return (
++    <Button onClick={start} variant={"outlined"} startIcon={<PersonLock />} fullWidth {...rest}>
++      {t("login.oidcSignIn", { defaultValue: "Sign in with {{name}}", name })}
++    </Button>
++  );
++}
+diff --git a/src/router/index.tsx b/src/router/index.tsx
+index 8552277..624fd8c 100644
+--- a/src/router/index.tsx
++++ b/src/router/index.tsx
+@@ -8,6 +8,7 @@ import Authorize from "../component/Pages/Login/Authorize.tsx";
+ import Reset from "../component/Pages/Login/Reset.tsx";
+ import SessionIntro from "../component/Pages/Login/SessionIntro.tsx";
+ import DesktopCallback from "../component/Pages/Login/Signin/DesktopCallback.tsx";
++import OidcCallback from "../component/Pages/Login/OidcCallback.tsx";
+ import MobileCallback from "../component/Pages/Login/Signin/MobileCallback.tsx";
+ import SignIn from "../component/Pages/Login/Signin/SignIn.tsx";
+ import SignUp from "../component/Pages/Login/Signup.tsx";
+@@ -48,6 +49,10 @@ export const router = createBrowserRouter([
+                 path: "authorize",
+                 element: <Authorize />,
+               },
++              {
++                path: "oidc",
++                element: <OidcCallback />,
++              },
+             ],
+           },
+           {
