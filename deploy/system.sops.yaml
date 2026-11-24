@@ -1,0 +1,34 @@
+# Cloudreve's own secrets, fixed so a restart or move keeps everyone logged
+# in and share links working (Cloudreve would otherwise generate them anew
+# on every start, since its data folder is temporary).
+apiVersion: v1
+kind: Secret
+metadata:
+    name: cloudreve-system
+stringData:
+    session-secret: ENC[AES256_GCM,data:ajAw7KFAFTFoG6X9g8zVOIcyFv1tSw77Nn/9+Hrw7hIlg0GA/uL2Eku0CVmUZdZEWmr8+6bUmpr9IVOjweK2Fw==,iv:RJjNnD7bmbKYFVnWmcPEIGjXEojHAZjR/jUnbPl1OCY=,tag:Tpj5WzRd10uzitfJfqzvHA==,type:str]
+    hash-id-salt: ENC[AES256_GCM,data:M+Dlhze0y1DCX1T730Mqe/EP7Ka1Wc6zh/jKviKMU5nJnfhCs6NDFBmUIkDfupqOzrp5f+UqkRVJWDdFQSHbNQ==,iv:O0iRnMBr3R6xMcXYZWPhqyhHF5qBmPkVoXxvJ0GipNM=,tag:N5dxnW45ub2sd/GgXuQzMw==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBQSlV3NGVSVzZXczgraG5w
+            UDNocGM3VG9UUW1EREhaYk1JN3NsNC9ES2swClF4bjcvZ1MwSnE5aTlSVGpJR2ta
+            blZnQ0hRQUVwQUdRdTdwc0QvU2kxN28KLS0tIHRwMWVjWkdUWlp0Z2R6bjMvWk5h
+            TkRLWnZpd1kwN2I2bXo2MXczNUNaN2MKQUiBRReHKRZfr8cM/xnlikmp2ROW4MwM
+            dQZU0CZ0OOrTho3lSEavLWMhqj+eYRzF/cwel14JjKnYN0fGERU6Vw==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1fharluqqx8n8clz5an6qte8hgqrkawjz6sy23humd2awzr0vq5tsvv6xgf
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBRTzBkdW9iR0xieGFQTkxm
+            SUxvVHFEYVBSOVNUOTlveEFGaUg4Z0xqZDM0CnF3RFg2RzJzQU1pMDNybEdDNkdK
+            N1FNUStJbzBlSFQ1bXlnWUs1SUtwaDQKLS0tIEp4c3oxUWRra1pLYWV6U2FpL2xQ
+            b3c4cGJESHFjYWd5ak9VTDVyZTdBT1kKaa9eMOWBx9oc8cxOfUhae3kmd+XXunBx
+            ez3CZrCscN/eTjZYrnQdWae54fcH0MxCcMMQzTH4zXV4usm9ShhVjQ==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age14lsxk30xq82ywvkf4l8psk55a0tkls87qx3k6u0zllyjt9tpwawsdgycxx
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-11-24T18:04:29Z"
+    mac: ENC[AES256_GCM,data:UD1mD9ZAsE0JulwruLIo2BT2wQT6mWkpvoNS/hG71DnSee67waeME9O6he+NlSiK6+hhBYsuYbAD+7At5jo85bWvA4cc4UDF1l1El/x76m8YoZCPVd2kvTXPKZ1+te1sXdE7XV9NusfQ0YDEq0kXnzwX/K1u14PWDGDXNcXcjmI=,iv:UGuCkk+4QUZbLplEUUvGr1scKYo27oWCR9rW6bO33WI=,tag:eCaA+q1huuQjBg34WFpaTg==,type:str]
+    version: 3.13.3

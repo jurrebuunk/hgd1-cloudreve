@@ -39,6 +39,7 @@ data:
         proxy_ssl_server_name on;
         proxy_ssl_name s3.lan.buunk.org;
         proxy_ssl_verify on;
+        proxy_ssl_verify_depth 3; # leaf, intermediate, root (Let's Encrypt)
         proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
       }
 

@@ -14,19 +14,50 @@ spec:
     metadata:
       labels: { app: cloudreve }
     spec:
+      # conf.ini is written from the Secrets before Cloudreve starts. Not
+      # env vars: Cloudreve logs every setting it takes from the
+      # environment, database password included.
+      initContainers:
+        - name: config
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              umask 077
+              cat > /cloudreve/data/conf.ini <<EOF
+              [System]
+              Mode = master
+              Listen = :5212
+              Debug = false
+              SessionSecret = $SESSION_SECRET
+              HashIDSalt = $HASH_ID_SALT
+
+              [Database]
+              Type = postgres
+              Host = cloudreve-db-rw
+              Port = 5432
+              Name = cloudreve
+              User = $DB_USER
+              Password = $DB_PASSWORD
+              EOF
+          env:
+            - name: SESSION_SECRET
+              valueFrom: { secretKeyRef: { name: cloudreve-system, key: session-secret } }
+            - name: HASH_ID_SALT
+              valueFrom: { secretKeyRef: { name: cloudreve-system, key: hash-id-salt } }
+            - name: DB_USER
+              valueFrom: { secretKeyRef: { name: cloudreve-db-app, key: username } }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: cloudreve-db-app, key: password } }
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - { name: data, mountPath: /cloudreve/data }
       containers:
         - name: cloudreve
           image: cloudreve/cloudreve:4.19.1
           ports: [{ containerPort: 5212 }]
-          env:
-            - { name: CR_CONF_Database.Type, value: postgres }
-            - { name: CR_CONF_Database.Host, value: cloudreve-db-rw }
-            - { name: CR_CONF_Database.Port, value: "5432" }
-            - { name: CR_CONF_Database.Name, value: cloudreve }
-            - name: CR_CONF_Database.User
-              valueFrom: { secretKeyRef: { name: cloudreve-db-app, key: username } }
-            - name: CR_CONF_Database.Password
-              valueFrom: { secretKeyRef: { name: cloudreve-db-app, key: password } }
           readinessProbe:
             tcpSocket: { port: 5212 }
             periodSeconds: 10

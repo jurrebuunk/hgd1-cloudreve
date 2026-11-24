@@ -8,6 +8,7 @@ resources:
   - namespace.yaml
   - database.yaml
   - s3-key.sops.yaml
+  - system.sops.yaml
   - s3-gateway.yaml
   - cloudreve.yaml
 components:
