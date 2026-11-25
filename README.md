@@ -21,6 +21,15 @@ refuses unsigned Content-Type on signed-URL uploads. The gateway drops it
 (unless signed), passes only the bucket `cloudreve`, and keeps the Host
 header the links are signed for.
 
+## Network
+
+- HTTPS only: `http://` redirects and HSTS is set, by the `buunk.org` zone
+  in Cloudflare (hgd1-k8s, Public access).
+- Pods reach the cluster, the internet and S3 (`s3.lan.buunk.org:443`), not
+  the rest of the site: `components/egress/default` and `s3` from hgd1-k8s
+  in `deploy/kustomization.yaml`; the database gets its own policy from
+  `components/postgres`.
+
 ## Login through Keycloak
 
 People sign in with **Sign in with buunk** (Keycloak, realm `hgd1`). OIDC
