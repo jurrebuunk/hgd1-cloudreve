@@ -14,6 +14,9 @@ resources:
   - cloudreve.yaml
 components:
   - ../components/postgres
+  # Pods reach the cluster, the internet and S3, nothing else on the site.
+  - ../components/egress/default
+  - ../components/egress/s3
 configMapGenerator:
   - name: s3-gateway
     files: [default.conf=s3-gateway.conf]
