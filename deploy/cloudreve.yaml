@@ -57,7 +57,7 @@ spec:
             - { name: data, mountPath: /cloudreve/data }
       containers:
         - name: cloudreve
-          image: ghcr.io/jurrebuunk/hgd1-cloudreve:4.19.1-oidc.1@sha256:e83332bb76dda6601cf68dac819ad782180bebb224f355a63193bde07ed24668
+          image: ghcr.io/jurrebuunk/hgd1-cloudreve:4.19.1-oidc.2@sha256:97dae7b4ebe13c1650ab1359b5dd3e8165f858c1b48952ab4c18f3b35b42a7bd
           ports: [{ containerPort: 5212 }]
           # Keycloak login (service/oidclogin in the patch). Not CR_*:
           # Cloudreve logs those values.
