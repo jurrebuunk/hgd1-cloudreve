@@ -1,11 +1,13 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: jurrebuunk <jurrebuunk@gmail.com>
-Date: Tue, 24 Nov 2026 22:42:53 +0100
+Date: Thu, 26 Nov 2026 19:35:14 +0100
 Subject: [PATCH] OpenID Connect login
 
 Sign in with an external OIDC provider (Keycloak): authorization code
 flow with PKCE, state and nonce, for a confidential client. Configured
 from OIDC_* environment variables; off when OIDC_ISSUER is unset.
+The provider's picture claim (an https address) becomes the account's
+avatar at each sign-in; the avatar endpoint redirects to it.
 See service/oidclogin.
 ---
  go.mod                              |   3 +
@@ -13,11 +15,12 @@ See service/oidclogin.
  inventory/types/types.go            |   2 +
  routers/controllers/oidc_login.go   | 138 ++++++++
  routers/router.go                   |  12 +
- service/oidclogin/oidclogin.go      | 474 ++++++++++++++++++++++++++++
- service/oidclogin/oidclogin_test.go | 316 +++++++++++++++++++
- service/oidclogin/user.go           | 166 ++++++++++
- service/oidclogin/user_test.go      | 133 ++++++++
- 9 files changed, 1250 insertions(+)
+ service/oidclogin/oidclogin.go      | 488 ++++++++++++++++++++++++++++
+ service/oidclogin/oidclogin_test.go | 316 ++++++++++++++++++
+ service/oidclogin/user.go           | 185 +++++++++++
+ service/oidclogin/user_test.go      | 184 +++++++++++
+ service/user/setting.go             |   9 +
+ 10 files changed, 1343 insertions(+)
  create mode 100644 routers/controllers/oidc_login.go
  create mode 100644 service/oidclogin/oidclogin.go
  create mode 100644 service/oidclogin/oidclogin_test.go
@@ -265,10 +268,10 @@ index 846f81a..e78a7a5 100644
  		// 用户相关路由
 diff --git a/service/oidclogin/oidclogin.go b/service/oidclogin/oidclogin.go
 new file mode 100644
-index 0000000..78041a3
+index 0000000..7857b27
 --- /dev/null
 +++ b/service/oidclogin/oidclogin.go
-@@ -0,0 +1,474 @@
+@@ -0,0 +1,488 @@
 +// Package oidclogin lets people sign in with an external OpenID Connect
 +// provider (Keycloak): authorization code flow with PKCE, state and nonce,
 +// for a confidential client. It is configured from the environment and stays
@@ -432,6 +435,9 @@ index 0000000..78041a3
 +	EmailVerified bool
 +	Name          string
 +	Roles         []string
++	// Picture is the provider's picture claim, if it is an https address
++	// (the hub's /avatars/…); it becomes the account's avatar.
++	Picture string
 +}
 +
 +// Provider holds the discovered provider and the client settings.
@@ -629,6 +635,9 @@ index 0000000..78041a3
 +	if id.Name == "" {
 +		id.Name, _ = claims["preferred_username"].(string)
 +	}
++	if pic, ok := claims["picture"].(string); ok && IsPictureURL(pic) {
++		id.Picture = pic
++	}
 +	if roles, ok := claims[p.Config.RoleClaim].([]any); ok {
 +		for _, r := range roles {
 +			if s, ok := r.(string); ok {
@@ -743,6 +752,14 @@ index 0000000..78041a3
 +
 +// NewHandle returns a random single-use handle for a finished login.
 +func NewHandle() string { return randomString() }
++
++// IsPictureURL says whether s is a picture address from the provider: an
++// absolute https URL. Cloudreve's own avatar values are "", "file" and
++// "gravatar", so it also tells an avatar set from the picture claim apart.
++func IsPictureURL(s string) bool {
++	u, err := url.Parse(s)
++	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && len(s) <= 2048
++}
 diff --git a/service/oidclogin/oidclogin_test.go b/service/oidclogin/oidclogin_test.go
 new file mode 100644
 index 0000000..e63c07b
@@ -1067,10 +1084,10 @@ index 0000000..e63c07b
 +}
 diff --git a/service/oidclogin/user.go b/service/oidclogin/user.go
 new file mode 100644
-index 0000000..643c31f
+index 0000000..17f89f1
 --- /dev/null
 +++ b/service/oidclogin/user.go
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,185 @@
 +package oidclogin
 +
 +import (
@@ -1186,8 +1203,27 @@ index 0000000..643c31f
 +			return nil, fmt.Errorf("failed to update group: %w", err)
 +		}
 +	}
++	if avatar := avatarFor(u.Avatar, id.Picture); avatar != u.Avatar {
++		if err := client.User.UpdateOneID(uid).SetAvatar(avatar).Exec(ctx); err != nil {
++			return nil, fmt.Errorf("failed to update avatar: %w", err)
++		}
++	}
 +
 +	return LoadUser(ctx, uc, uid)
++}
++
++// avatarFor is the avatar to keep after a sign-in. The provider's picture
++// wins: people set it once in the hub for every app. Without one, a picture
++// set earlier from the provider goes (removed there), but an avatar the
++// person uploaded in Cloudreve itself stays.
++func avatarFor(current, picture string) string {
++	if picture != "" {
++		return picture
++	}
++	if IsPictureURL(current) {
++		return ""
++	}
++	return current
 +}
 +
 +// LoadUser loads an active user with its group, as login handlers expect.
@@ -1239,10 +1275,10 @@ index 0000000..643c31f
 +}
 diff --git a/service/oidclogin/user_test.go b/service/oidclogin/user_test.go
 new file mode 100644
-index 0000000..9e9730b
+index 0000000..7a2a3cc
 --- /dev/null
 +++ b/service/oidclogin/user_test.go
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,184 @@
 +package oidclogin
 +
 +import (
@@ -1376,3 +1412,81 @@ index 0000000..9e9730b
 +		t.Fatal("error codes")
 +	}
 +}
++
++func TestPictureBecomesAvatar(t *testing.T) {
++	client := newTestDB(t)
++	uc := inventory.NewUserClient(client)
++	ctx := context.Background()
++	pic := "https://hub.example.org/avatars/s-ann/0123456789abcdef0123456789abcdef.jpg"
++	withPic := func(p string) *Identity {
++		id := ident("s-ann", "ann@example.org", true, "user")
++		id.Picture = p
++		return id
++	}
++
++	u, err := ResolveUser(ctx, testCfg, uc, withPic(pic))
++	if err != nil || u.Avatar != pic {
++		t.Fatalf("new account: avatar %q, %v", u.Avatar, err)
++	}
++	// A new picture replaces it; signing in without one clears ours.
++	pic2 := "https://hub.example.org/avatars/s-ann/ffffffffffffffffffffffffffffffff.jpg"
++	if u, _ = ResolveUser(ctx, testCfg, uc, withPic(pic2)); u.Avatar != pic2 {
++		t.Fatalf("new picture: %q", u.Avatar)
++	}
++	if u, _ = ResolveUser(ctx, testCfg, uc, withPic("")); u.Avatar != "" {
++		t.Fatalf("picture removed: %q", u.Avatar)
++	}
++	// An avatar uploaded in Cloudreve stays when there is no picture...
++	client.User.UpdateOneID(u.ID).SetAvatar("file").ExecX(ctx)
++	if u, _ = ResolveUser(ctx, testCfg, uc, withPic("")); u.Avatar != "file" {
++		t.Fatalf("own upload: %q", u.Avatar)
++	}
++	// ...and the provider's picture wins when there is one.
++	if u, _ = ResolveUser(ctx, testCfg, uc, withPic(pic)); u.Avatar != pic {
++		t.Fatalf("picture over upload: %q", u.Avatar)
++	}
++}
++
++func TestIsPictureURL(t *testing.T) {
++	for s, want := range map[string]bool{
++		"https://hub.buunk.org/avatars/a/b.jpg": true,
++		"http://hub.buunk.org/avatars/a/b.jpg":  false,
++		"javascript:alert(1)":                   false,
++		"//evil.example/x.jpg":                  false,
++		"https://user:pw@evil.example/x.jpg":    false,
++		"file":                                  false,
++		"gravatar":                              false,
++		"":                                      false,
++	} {
++		if got := IsPictureURL(s); got != want {
++			t.Errorf("IsPictureURL(%q) = %v", s, got)
++		}
++	}
++}
+diff --git a/service/user/setting.go b/service/user/setting.go
+index 58d821c..147f03b 100644
+--- a/service/user/setting.go
++++ b/service/user/setting.go
+@@ -4,6 +4,7 @@ import (
+ 	"context"
+ 	"crypto/md5"
+ 	"fmt"
++	"github.com/cloudreve/Cloudreve/v4/service/oidclogin"
+ 	"io"
+ 	"net/http"
+ 	"net/url"
+@@ -86,6 +87,14 @@ func (service *GetAvatarService) Get(c *gin.Context) error {
+ 		return nil
+ 	}
+ 
++	// The provider's picture (OIDC login patch): an https address taken
++	// from the ID token at sign-in. Not cached here, so a new picture shows.
++	if oidclogin.IsPictureURL(user.Avatar) {
++		c.Header("Cache-Control", "no-cache")
++		c.Redirect(http.StatusFound, user.Avatar)
++		return nil
++	}
++
+ 	avatarSettings := settings.Avatar(c)
+ 
+ 	// Gravatar 头像重定向

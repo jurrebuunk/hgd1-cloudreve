@@ -50,6 +50,14 @@ only the patch files in this repo.
   the person sees "an administrator has to mark your email address as
   verified". An account linked to one Keycloak user can't be taken by
   another.
+- **Profile picture:** the picture people set in the hub (buunk-hub) is
+  their Keycloak `picture` attribute, and comes along as the `picture`
+  claim. At every sign-in it becomes the account's avatar (only an
+  `https://` address); Cloudreve's avatar URL then redirects to it. No file
+  is kept, so it survives the pod restarting (`data` is an emptyDir). Signing
+  in without one clears an avatar set that way; an avatar uploaded in
+  Cloudreve itself stays until a hub picture replaces it. A new picture
+  shows after the next sign-in here.
 - **Password login stays** for accounts that have a password: keep one
   local admin as a way in when Keycloak is down. Accounts made by Keycloak
   have no password.
@@ -72,7 +80,7 @@ the patch's tests. CI (`.github/workflows/image.yml`) publishes
 
 | Patch | What |
 | --- | --- |
-| backend | `service/oidclogin` (flow, ID token checks, account linking, tests), `routers/controllers/oidc_login.go`, four routes under `/api/v4/session/oidc`, one field `oidc_sub` in user settings |
+| backend | `service/oidclogin` (flow, ID token checks, account linking, picture as avatar, tests), `routers/controllers/oidc_login.go`, four routes under `/api/v4/session/oidc`, one field `oidc_sub` in user settings, and the avatar endpoint redirecting to a picture address (`service/user/setting.go`) |
 | frontend | The button on the sign-in page and the page `/session/oidc` that finishes the sign-in |
 
 How a sign-in goes: `/api/v4/session/oidc/login` sends the browser to
